@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}
+Create workflow
+{% endblock title %}
+
+{% block content %}
+<div class="px-8 pt-4 mx-auto">
+
+  {% include "workflows/components/navbar.html" %}
+
+
+<div class="py-4 grid grid-cols-4 gap-4">
+
+  <!-- Card 1: Workflow Types -->
+  {% set title = "Workflow Types" %}
+  {% set main_value = 12 %}
+  {% set subtext = "+2 new this month" %}
+  {% include "workflows/components/card.html" %}
+
+  <!-- Card 2: Completed Workflows -->
+  {% set title = "Completed Workflows" %}
+  {% set main_value = 45 %}
+  {% set subtext = "+10% from last week" %}
+  {% include "workflows/components/card.html" %}
+
+ {% set title = "Failed Workflows" %}
+  {% set main_value = 5 %}
+  {% set subtext = "+5% failure rate" %}
+  {% include "workflows/components/card.html" %}
+
+  <!-- Card 4: Active Runners -->
+  {% set title = "Active Runners" %}
+  {% set main_value = 8 %}
+  {% set subtext = "Running smoothly" %}
+  {% include "workflows/components/card.html" %}
+
+
+
+
+<div class="col-span-2 px-4 pt-2  bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 ">
+      <h4 class="font-semibold text-sm pb-2"> Completed Workflows</h4>
+
+<div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+    <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+        <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <tr>
+                <th scope="col" class="px-6 py-3">Name</th>
+                <th scope="col" class="px-6 py-3">Status</th>
+                <th scope="col" class="px-6 py-3">Last Run</th>
+                <th scope="col" class="px-6 py-3">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for workflow in workflows %}
+            <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600" data-accordion="collapse">
+              <td class="px-6 py-4">
+                <div class="font-semibold text-gray-900 dark:text-white">
+                {{ workflow.name }}
+                </div>
+                <div class="text-xs">
+                {{ workflow.id }}
+                  </div>
+                                 
+              </td>
+                <td class="px-6 py-4">{{ workflow.status }}</td>
+          <td class="px-6 py-4">{{ workflow.last_run}}  </td>
+                <td class="px-6 py-4">
+                    <button type="button" data-accordion-target="#workflow-{{ loop.index }}" aria-expanded="false" aria-controls="workflow-{{ loop.index }}" class="text-blue-600 dark:text-blue-500 hover:underline">
+                        View Activities
+                    </button>
+                </td>
+            </tr>
+            <!-- Collapsible Activities Content -->
+            <tr id="workflow-{{ loop.index }}" class="hidden">
+                <td colspan="5" class="p-4 bg-gray-50 dark:bg-gray-900">
+                    <div class="text-gray-500 dark:text-gray-400">
+                        <p class="font-semibold mb-2">Activities:</p>
+                        {% for activity, output in workflow.results %}
+                        <div class="mb-2">
+                            <p class="font-medium">{{ activity }}:</p>
+                            <pre class="text-xs bg-gray-200 p-2 rounded">{{ output | safe }}</pre>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+  </div>
+  </div>
+
+<script>
+    // CSS-only alternative for the expand functionality (using the 'hidden' class)
+    document.querySelectorAll('[data-accordion-target]').forEach(button => {
+        button.addEventListener('click', () => {
+            const target = document.querySelector(button.getAttribute('data-accordion-target'));
+            target.classList.toggle('hidden');
+        });
+    });
+</script>
+
+
+
+{% endblock content %}

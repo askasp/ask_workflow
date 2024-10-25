@@ -1,0 +1,29 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>{% block title %}{% endblock title %}</title>
+
+  <!-- <script src="https://unpkg.com/htmx.org@2.0.0/dist/htmx.min.js"></script> -->
+  <!-- <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio,line-clamp"></script> -->
+
+  <link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.css" rel="stylesheet" />
+  {% block head %}
+
+  {% endblock head %}
+</head>
+
+<body class="">
+
+  <div id="content">
+    {% block content %}
+    {% endblock content %}
+  </div>
+
+  {% block js %}
+  <script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.js"></script>
+  {% endblock js %}
+</body>
+
+</html>
