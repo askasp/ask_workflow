@@ -26,7 +26,7 @@ pub enum WorkflowErrorType {
 pub trait Workflow: Send + Sync {
     fn name(&self) -> &str;
     // fn static_name() -> &'static str;
-    
+
     fn static_name() -> &'static str
     where
         Self: Sized;
@@ -40,6 +40,9 @@ pub trait Workflow: Send + Sync {
         {
             let state = self.state_mut();
             state.scheduled_at = SystemTime::add(SystemTime::now(), state.claim_duration);
+            if state.start_time.is_none() {
+                state.start_time = Some(SystemTime::now());
+            }
 
             db.insert(state.clone()).await;
         }
@@ -124,7 +127,9 @@ pub async fn run_activity_async<F, T>(
     mut activity_fn: F,
 ) -> Result<T, WorkflowErrorType>
 where
-    F: FnMut() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, WorkflowErrorType>> + Send>>,
+    F: FnMut() -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, WorkflowErrorType>> + Send>,
+    >,
     T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + Sync,
 {
     // Check if the activity has already been completed

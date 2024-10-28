@@ -15,3 +15,4 @@ futures = "0.3.31"
 axum = {version= "0.7.7", features=["macros"]}
 tera = { version = "1.20.0", features = ["builtins"] }
 chrono = "0.4.38"
+tracing = "0.1.40"

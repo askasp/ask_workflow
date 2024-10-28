@@ -9,7 +9,7 @@ use axum::{
 
 use db_trait::DB;
 use tera::Tera;
-use ui::controllers;
+
 
 pub mod activity;
 pub mod db_trait;
@@ -35,11 +35,10 @@ mod tests {
 // Axum server setup
 #[derive(Clone)]
 struct AppState {
-    db: Arc<dyn DB>,
+    worker: Arc<worker::Worker>,
 }
-pub async fn start_axum_server(db: Arc<dyn DB>, port: u16) {
-    let app_state = AppState { db };
-
+pub async fn start_axum_server(worker:  Arc<worker::Worker>, port: u16) {
+    let app_state = AppState { worker };
     let app = Router::new()
         .nest("/workflows", ui::controllers::workflow::routes())
         .layer(Extension(app_state));
@@ -49,13 +48,3 @@ pub async fn start_axum_server(db: Arc<dyn DB>, port: u16) {
     axum::serve(listener, app).await.unwrap();
 }
 
-pub fn common_context() -> tera::Context {
-    let mut context = tera::Context::new();
-    context.insert("title", "axum-tera");
-    context
-}
-
-pub fn tera_include() -> Tera {
-    let tera = Tera::new("src/ui/views/**/*").unwrap();
-    tera
-}

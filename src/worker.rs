@@ -9,37 +9,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-pub struct Worker
-// where
-//     Context: Send + Sync + 'static, // Ensure Context is Send + Sync
-{
-    db: Arc<dyn DB>,
-    // context: Arc<Context>,
-    workflows: HashMap<
+pub struct Worker {
+    pub db: Arc<dyn DB>,
+    pub workflows: HashMap<
         String,
         Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>,
     >,
 }
-
-// impl<Context> Worker<Context>
-//     where Context: Send + Sync + 'static, // Ensure Context is Send + Sync
-
-// {
-//     pub fn new(db: Arc<dyn DB>, context: Arc<Context>) -> Self {
-//         Self {
-//             db,
-//             context,
-//             workflows: HashMap::new(),
-//         }
-//     }
-
-// pub struct Worker {
-//     db: Arc<dyn DB>,
-//     workflows: HashMap<
-//         String,
-//         Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>,
-//     >,
-// }
 
 impl Worker {
     // Create a new Worker with the provided database
@@ -48,6 +24,9 @@ impl Worker {
             db,
             workflows: HashMap::new(),
         }
+    }
+    pub fn workflow_names(&self) -> Vec<String> {
+        self.workflows.keys().cloned().collect()
     }
 
     pub fn add_workflow<F>(&mut self, name: &str, factory: F)

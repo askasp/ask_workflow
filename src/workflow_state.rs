@@ -43,6 +43,8 @@ pub struct WorkflowState {
     pub output: Option<Value>, // Optional output of the workflow
     pub errors: Vec<WorkflowError>,
     pub claim_duration: Duration,
+    pub start_time: Option<SystemTime>,
+    pub end_time: Option<SystemTime>,
 }
 
 impl WorkflowState {
@@ -62,13 +64,16 @@ impl WorkflowState {
             status: WorkflowStatus::Open(Open::Running),
             errors: vec![],
             claim_duration: Duration::from_secs(10),
+            start_time: None,
+            end_time: None,
 
         }
     }
 
     // Mark the workflow as completed
     pub fn mark_completed(&mut self) {
-        self.status = WorkflowStatus::Closed(Closed::Completed)
+        self.status = WorkflowStatus::Closed(Closed::Completed);
+        self.end_time= Some(SystemTime::now());
     }
     pub fn mark_failed(&mut self) {
         self.status = WorkflowStatus::Closed(Closed::Failed)
