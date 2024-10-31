@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::{Duration, SystemTime};
 
-use crate::workflow::{WorkflowErrorType};
+use crate::workflow::WorkflowErrorType;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum WorkflowStatus {
@@ -22,7 +22,6 @@ pub enum Closed {
     Cancelled,
     Failed,
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorkflowError {
@@ -45,13 +44,19 @@ pub struct WorkflowState {
     pub claim_duration: Duration,
     pub start_time: Option<SystemTime>,
     pub end_time: Option<SystemTime>,
+    pub input: Option<Value>,
 }
 
 impl WorkflowState {
+    pub fn unique_id(&self) -> String {
+        format!("{}-{}", self.workflow_type, self.instance_id)
+    }
+
     pub fn new(
         workflow_type: &str,
         instance_id: &str,
         scheduled_at: SystemTime,
+        input: Option<Value>,
     ) -> Self {
         Self {
             workflow_type: workflow_type.to_string(),
@@ -63,17 +68,17 @@ impl WorkflowState {
             output: None,
             status: WorkflowStatus::Open(Open::Running),
             errors: vec![],
-            claim_duration: Duration::from_secs(10),
+            claim_duration: Duration::from_secs(60),
             start_time: None,
             end_time: None,
-
+            input,
         }
     }
 
     // Mark the workflow as completed
     pub fn mark_completed(&mut self) {
         self.status = WorkflowStatus::Closed(Closed::Completed);
-        self.end_time= Some(SystemTime::now());
+        self.end_time = Some(SystemTime::now());
     }
     pub fn mark_failed(&mut self) {
         self.status = WorkflowStatus::Closed(Closed::Failed)
@@ -124,7 +129,7 @@ impl WorkflowState {
 }
 
 impl fmt::Display for WorkflowStatus {
-fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let status_str = match self {
             WorkflowStatus::Open(Open::Running) => "Running",
             WorkflowStatus::Closed(Closed::Completed) => "Completed",

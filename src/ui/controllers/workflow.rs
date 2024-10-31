@@ -46,16 +46,34 @@ async fn add(
         .as_ref()
         .and_then(|i| serde_json::from_str(i).ok());
 
+    println!("parsed input is: {:?}", input);
+
+
     let _ = app_state
         .worker
-        .schedule_now(&params.name, &params.id, None)
+        .schedule_now(&params.name, &params.id, input.clone())
         .await;
+
+    let receiver = app_state
+        .worker
+        .execute(&params.name, &params.id, "CreateUserActivity", input.clone());
+    let title = match receiver.await {
+        Ok(result) => {
+            let value = result.await;
+            value.unwrap().to_string()
+        }
+        Err(_) => {
+            // Handle the case where the sender dropped before sending
+            eprintln!("The workflow activity did not complete successfully.");
+            "Workflow activity did not complete successfully".to_string()
+        }
+    };
 
     render_page(
         &app_state,
         None,
         Some(Toast {
-            title: "Workflow created".to_string(),
+            title: title,
             variant: "success".to_string(),
         }),
     )
@@ -88,7 +106,6 @@ pub enum HtmlComponent {
     WorfklowTable,
     All,
 }
-
 async fn render_page(
     app_state: &AppState,
     component: Option<HtmlComponent>,
@@ -111,7 +128,6 @@ async fn render_page(
         names: app_state.worker.workflow_names(),
     };
     workflow_context.add_to_context(&mut context);
-
     match component {
         Some(HtmlComponent::WorfklowTable) => {
             let output = tera.render("workflows/workflow_table.html", &context);

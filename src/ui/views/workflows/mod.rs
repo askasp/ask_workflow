@@ -24,14 +24,24 @@ pub struct WorkflowView {
     pub status: String,
     pub start_time: Option<String>,
     pub end_time: Option<String>,
-    pub results: HashMap<String, serde_json::Value>,
+    pub results: HashMap<String, String>,
 }
 impl WorkflowView {
     pub fn new(workflow: &WorkflowState) -> WorkflowView {
+     let new_results = workflow.results.clone()
+        .into_iter()
+        .map(|(activity, output)| {
+            // Convert each output to a pretty JSON string
+            let json_output = serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string());
+            (activity, json_output)
+        })
+        .collect();
+
+
         WorkflowView {
             name: workflow.workflow_type.clone(),
             id: workflow.instance_id.clone(),
-            results: workflow.results.clone(),
+            results: new_results,
             status: workflow.status.to_string(),
             end_time: workflow.end_time.map(|time| system_time_to_string(time)),
             start_time: workflow.start_time.map(|time| system_time_to_string(time)),

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ask_workflow::{activity::Activity, workflow::{Workflow, WorkflowErrorType}, workflow_state::WorkflowState};
+use ask_workflow::{activity::Activity, db_trait::DB, workflow::{Workflow, WorkflowErrorType}, workflow_state::WorkflowState};
 use axum::async_trait;
 use serde::Deserialize;
 
@@ -89,13 +89,13 @@ impl Workflow for BasicWorkflow {
         &self.state
     }
 
-    async fn run(&mut self) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
+    async fn run(&mut self, db: Arc<dyn DB>) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
         // Activity 1: print a string, retry up to 3 times
         let state = self.state_mut();
-        let res = SimpleActivity {}.execute(state).await?;
+        let res = SimpleActivity {}.execute(state, db.clone()).await?;
 
         if state.instance_id == "failing_id".to_string() {
-            FailingActivity {}.execute(state).await?;
+            FailingActivity {}.execute(state, db.clone()).await?;
         }
 
         let ctx = self.context.clone();

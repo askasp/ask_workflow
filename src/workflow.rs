@@ -4,23 +4,15 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::future::Future;
 use std::ops::Add;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 // The Workflow trait defines the behavior of a workflow
 //
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum WorkflowErrorType {
-    TransientError {
-        message: String,
-        content: Option<Value>,
-    },
-    PermanentError {
-        message: String,
-        content: Option<Value>,
-    },
-}
+
 // #[typetag::serde(tag = "workflow_type")]
 #[async_trait]
 pub trait Workflow: Send + Sync {
@@ -31,7 +23,7 @@ pub trait Workflow: Send + Sync {
     where
         Self: Sized;
 
-    async fn run(&mut self) -> Result<Option<Value>, WorkflowErrorType>; // Executes the workflow logic
+    async fn run(&mut self, db: Arc<dyn DB>) -> Result<Option<Value>, WorkflowErrorType>; // Executes the workflow logic
 
     fn state_mut(&mut self) -> &mut WorkflowState; // Provides mutable access to the workflow state
     fn state(&self) -> &WorkflowState; // Provides mutable access to the workflow state
@@ -46,7 +38,7 @@ pub trait Workflow: Send + Sync {
 
             db.insert(state.clone()).await;
         }
-        let result = self.run().await;
+        let result = self.run(db.clone()).await;
         match result {
             Ok(output) => {
                 let state = self.state_mut();
@@ -84,74 +76,98 @@ pub trait Workflow: Send + Sync {
         }
     }
 }
-//
-//
 
-// Function to handle activity retries and state updates
-pub async fn run_activity<F, T>(
+pub async fn run_activity<T, F, Fut>(
+    name: &str,
     state: &mut WorkflowState,
-    activity_name: &str,
-    activity_fn: F,
+    db: Arc<dyn DB>,
+    func: F,
 ) -> Result<T, WorkflowErrorType>
 where
-    F: Fn() -> Result<T, WorkflowErrorType> + Send + Sync,
-    T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + Sync,
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, WorkflowErrorType>>,
+    T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 {
-    // Check if the activity has already been completed
-    if let Some(result) = state.get_activity_result(activity_name) {
-        let result: T = serde_json::from_value(result.clone()).unwrap();
-        println!("Using cached result for activity '{}'", activity_name);
-        return Ok(result);
+    // Check if the activity is already completed
+    if let Some(result) = state.get_activity_result(name) {
+        println!("Using cached result for activity '{}'", name);
+        let cached_result: T = serde_json::from_value(result.clone()).unwrap();
+        return Ok(cached_result);
     }
 
-    match activity_fn() {
+    // Run the function and await its result
+    match func().await {
         Ok(result) => {
-            state.add_activity_result(activity_name, &result);
-            return Ok(result);
-        }
-        Err(e) => {
-            state.errors.push(WorkflowError {
-                error_type: e.clone(),
-                activity_name: activity_name.to_string(),
-                timestamp: SystemTime::now(),
-            });
-            Err(e)
-        }
-    }
-}
-
-// Function to handle async activity retries and state updates
-pub async fn run_activity_async<F, T>(
-    state: &mut WorkflowState,
-    activity_name: &str,
-    mut activity_fn: F,
-) -> Result<T, WorkflowErrorType>
-where
-    F: FnMut() -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<T, WorkflowErrorType>> + Send>,
-    >,
-    T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + Sync,
-{
-    // Check if the activity has already been completed
-    if let Some(result) = state.get_activity_result(activity_name) {
-        let result: T = serde_json::from_value(result.clone()).unwrap();
-        println!("Using cached result for activity '{}'", activity_name);
-        return Ok(result);
-    }
-
-    // Run the activity asynchronously and handle result
-    match activity_fn().await {
-        Ok(result) => {
-            state.add_activity_result(activity_name, &result);
+            println!("Caching result for activity '{}'", name);
+            state.add_activity_result(name, &result);
+            db.update(state.clone()).await;
             Ok(result)
         }
         Err(e) => {
             state.errors.push(WorkflowError {
                 error_type: e.clone(),
-                activity_name: activity_name.to_string(),
+                activity_name: name.to_string(),
                 timestamp: SystemTime::now(),
             });
+            db.update(state.clone()).await;
             Err(e)
+        }
+    }
+}
+pub async fn run_sync_activity<T, F>(
+    name: &str,
+    state: &mut WorkflowState,
+    db: Arc<dyn DB>,
+    func: F,
+) -> Result<T, WorkflowErrorType>
+where
+    F: FnOnce() -> Result<T, WorkflowErrorType>,
+    T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+{
+    // Check if the activity is already completed
+    if let Some(result) = state.get_activity_result(name) {
+        println!("Using cached result for activity '{}'", name);
+        let cached_result: T = serde_json::from_value(result.clone()).unwrap();
+        return Ok(cached_result);
+    }
+
+    // Run the function and get its result
+    match func() {
+        Ok(result) => {
+            println!("Caching result for activity '{}'", name);
+            state.add_activity_result(name, &result);
+            db.update(state.clone()).await;  // Await the async update call
+            Ok(result)
+        }
+        Err(e) => {
+            state.errors.push(WorkflowError {
+                error_type: e.clone(),
+                activity_name: name.to_string(),
+                timestamp: SystemTime::now(),
+            });
+            db.update(state.clone()).await;  // Await the async update call
+            Err(e)
+        }
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum WorkflowErrorType {
+    TransientError {
+        message: String,
+        content: Option<Value>,
+    },
+    PermanentError {
+        message: String,
+        content: Option<Value>,
+    },
+}
+impl From<serde_json::Error> for WorkflowErrorType {
+    fn from(err: serde_json::Error) -> Self {
+        WorkflowErrorType::PermanentError {
+            message: err.to_string(),
+            content: None, // Or provide additional context if available
         }
     }
 }

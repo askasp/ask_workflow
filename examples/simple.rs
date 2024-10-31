@@ -1,8 +1,10 @@
 use ask_workflow::db_trait::InMemoryDB;
 use ask_workflow::start_axum_server;
 use ask_workflow::worker::Worker;
-use ask_workflow::workflow::{run_activity_async, Workflow, WorkflowErrorType};
+use ask_workflow::workflow::{ Workflow, WorkflowErrorType};
 use reqwest;
+use simple::create_user_workflow::{CreateUserWorkflow, CreateUserWorkflowContext};
+use simple::mock_db::MockDatabase;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::time::Duration;
@@ -29,12 +31,26 @@ async fn main() {
             context: context.clone(),
         });
     });
+    let mock_db = Arc::new(MockDatabase::new());
+    let mock_db_clone = mock_db.clone();
+    let create_user_context = Arc::new(CreateUserWorkflowContext {
+        http_client: Arc::new(reqwest::Client::new()),
+            db: mock_db_clone.clone()
+    });
+
+    worker.add_workflow(CreateUserWorkflow::static_name(), move |state| {
+        return Box::new(CreateUserWorkflow {
+            state,
+            context: create_user_context.clone(),
+        });
+    });
 
     let _ = worker
         .schedule(
             BasicWorkflow::static_name(),
             "workflow-instance_1",
             SystemTime::now() + Duration::from_secs(20), // Schedule for 20 seconds in the future
+            None,
         )
         .await;
 
@@ -47,6 +63,7 @@ async fn main() {
             BasicWorkflow::static_name(),
             "failing_id",
             SystemTime::now() + Duration::from_secs(3),
+            None,
         )
         .await;
 
@@ -56,7 +73,7 @@ async fn main() {
 
     // Start the worker in its own background thread
     let worker_handle = tokio::spawn(async move {
-        worker_clone.run(1).await;
+        worker_clone.run(100).await;
     });
 
     // Keep the main thread alive (or start other tasks like a web server here)

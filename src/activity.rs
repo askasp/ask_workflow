@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 use crate::{
+    db_trait::DB,
     workflow::WorkflowErrorType,
     workflow_state::{WorkflowError, WorkflowState},
 };
@@ -19,7 +20,11 @@ where
     fn name(&self) -> &str;
 
     // Default execute method that handles state saving and caching
-    async fn execute(&self, state: &mut WorkflowState) -> Result<T, WorkflowErrorType> {
+    async fn execute(
+        &self,
+        state: &mut WorkflowState,
+        db: Arc<dyn DB>,
+    ) -> Result<T, WorkflowErrorType> {
         // Check if the activity is already completed
         if let Some(result) = state.get_activity_result(self.name()) {
             println!("Using cached result for activity '{}'", self.name());
@@ -33,6 +38,7 @@ where
                 // Save result in the state
                 println!("Caching result for activity '{}'", self.name());
                 state.add_activity_result(self.name(), &result);
+                db.update(state.clone()).await;
                 Ok(result)
             }
             Err(e) => {
@@ -42,6 +48,8 @@ where
                     activity_name: self.name().to_string(),
                     timestamp: SystemTime::now(),
                 });
+                db.update(state.clone()).await;
+
                 Err(e)
             }
         }

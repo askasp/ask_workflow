@@ -1,27 +1,30 @@
 use std::{collections::HashMap, sync::Mutex};
 
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone)]
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct User{
-    id: String,
+    pub id: String,
+    pub name: String,
 }
 
-struct MockDatabase {
+pub struct MockDatabase {
     users: Mutex<HashMap<String, User>>, // Replace `User` with your actual struct
 }
 
 impl MockDatabase {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             users: Mutex::new(HashMap::new()),
         }
     }
 
-    fn insert_user(&self, user_id: String, user: User) {
-        self.users.lock().unwrap().insert(user_id, user);
+    pub fn insert_user(&self, user: User) {
+        self.users.lock().unwrap().insert(user.id.clone(), user);
     }
 
-    fn get_user(&self, user_id: &str) -> Option<User> {
+    pub fn get_user(&self, user_id: &str) -> Option<User> {
         self.users.lock().unwrap().get(user_id).cloned()
     }
 }
