@@ -1,4 +1,6 @@
+#![feature(associated_type_defaults)]
 use std::sync::Arc;
+pub mod typed_version;
 
 use axum::{
     extract::State,
@@ -6,7 +8,6 @@ use axum::{
     response::{Html, IntoResponse},
     Extension, Router,
 };
-
 
 
 pub mod activity;

@@ -54,26 +54,12 @@ async fn add(
         .schedule_now(&params.name, &params.id, input.clone())
         .await;
 
-    let receiver = app_state
-        .worker
-        .execute(&params.name, &params.id, "CreateUserActivity", input.clone());
-    let title = match receiver.await {
-        Ok(result) => {
-            let value = result.await;
-            value.unwrap().to_string()
-        }
-        Err(_) => {
-            // Handle the case where the sender dropped before sending
-            eprintln!("The workflow activity did not complete successfully.");
-            "Workflow activity did not complete successfully".to_string()
-        }
-    };
 
     render_page(
         &app_state,
         None,
         Some(Toast {
-            title: title,
+            title: "Workflow Created".to_string(),
             variant: "success".to_string(),
         }),
     )
@@ -103,7 +89,7 @@ pub struct ComponentQuery {
 
 #[derive(Serialize, Deserialize)]
 pub enum HtmlComponent {
-    WorfklowTable,
+    WorkflowTable,
     All,
 }
 async fn render_page(
@@ -129,8 +115,8 @@ async fn render_page(
     };
     workflow_context.add_to_context(&mut context);
     match component {
-        Some(HtmlComponent::WorfklowTable) => {
-            let output = tera.render("workflows/workflow_table.html", &context);
+        Some(HtmlComponent::WorkflowTable) => {
+            let output = tera.render("workflows/components/workflow_table.html", &context);
             Html(output.unwrap())
         }
         Some(HtmlComponent::All) => {

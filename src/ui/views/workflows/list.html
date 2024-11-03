@@ -40,7 +40,13 @@ Create workflow
         </button>
       </div>
 
-      {% include "workflows/components/workflow_table.html" %}
+<div 
+    hx-get="/workflows?component=WorkflowTable" 
+    hx-trigger="every 5s" 
+    hx-swap="innerHTML">
+    {% include "workflows/components/workflow_table.html" %}
+</div>
+
       </div>
       </div>
    </div>

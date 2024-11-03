@@ -5,25 +5,24 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
+use std::sync::Arc;
+use std::any::Any;
+
 use std::ops::Add;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-// The Workflow trait defines the behavior of a workflow
-//
 
-// #[typetag::serde(tag = "workflow_type")]
 #[async_trait]
 pub trait Workflow: Send + Sync {
-    fn name(&self) -> &str;
-    // fn static_name() -> &'static str;
 
+    fn name(&self) -> &str;
     fn static_name() -> &'static str
     where
         Self: Sized;
 
-    async fn run(&mut self, db: Arc<dyn DB>) -> Result<Option<Value>, WorkflowErrorType>; // Executes the workflow logic
+
+    async fn run(&mut self, db: Arc<dyn DB>) -> Result<Option<Value>, WorkflowErrorType>;
 
     fn state_mut(&mut self) -> &mut WorkflowState; // Provides mutable access to the workflow state
     fn state(&self) -> &WorkflowState; // Provides mutable access to the workflow state
@@ -136,7 +135,7 @@ where
         Ok(result) => {
             println!("Caching result for activity '{}'", name);
             state.add_activity_result(name, &result);
-            db.update(state.clone()).await;  // Await the async update call
+            db.update(state.clone()).await; // Await the async update call
             Ok(result)
         }
         Err(e) => {
@@ -145,12 +144,11 @@ where
                 activity_name: name.to_string(),
                 timestamp: SystemTime::now(),
             });
-            db.update(state.clone()).await;  // Await the async update call
+            db.update(state.clone()).await; // Await the async update call
             Err(e)
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum WorkflowErrorType {
@@ -171,3 +169,28 @@ impl From<serde_json::Error> for WorkflowErrorType {
         }
     }
 }
+
+// #[typetag::serde(tag = "workflow_type")]
+// #[async_trait]
+// pub trait Workflow_2: Send + Sync + Serialize + 'static {
+//     type Input: Serialize + for<'de> Deserialize<'de> + Send + Sync;
+//     type Output: Serialize + for<'de> Deserialize<'de> + Send + Sync;
+//     type Signal: Serialize + for<'de> Deserialize<'de> + Send + Sync;
+
+//     fn workflow_id(&self) -> &str;
+
+//     async fn run(
+//         &mut self,
+//         input: Self::Input,
+//         runner: Arc<WorkflowRunner_2<Self>>,
+//     ) -> Result<Self::Output, WorkflowErrorType_2>;
+
+//     async fn execute(
+//         &mut self,
+//         input: Self::Input,
+//         runner: Arc<WorkflowRunner_2<Self>>,
+//     ) -> Result<Self::Output, WorkflowErrorType_2> {
+//         let result = self.run(input, runner).await?;
+//         Ok(result)
+//     }
+// }

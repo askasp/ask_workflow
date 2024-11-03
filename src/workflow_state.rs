@@ -68,7 +68,7 @@ impl WorkflowState {
             output: None,
             status: WorkflowStatus::Open(Open::Running),
             errors: vec![],
-            claim_duration: Duration::from_secs(60),
+            claim_duration: Duration::from_secs(10),
             start_time: None,
             end_time: None,
             input,

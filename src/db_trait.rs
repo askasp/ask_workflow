@@ -70,7 +70,7 @@ impl DB for InMemoryDB {
 
     async fn update(&self, state: WorkflowState) {
         let mut db = self.workflows.lock().unwrap();
-        db.insert(state.unique_id(), state);
+        db.insert(state.instance_id.clone(), state);
     }
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState> {
         let db = self.workflows.lock().unwrap();

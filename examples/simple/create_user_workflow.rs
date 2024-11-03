@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
-    activity::Activity,
     db_trait::DB,
     workflow::{run_activity, run_sync_activity, Workflow, WorkflowErrorType},
     workflow_signal::WorkflowSignal,
