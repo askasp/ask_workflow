@@ -1,54 +1,70 @@
-use crate::db_trait::DB;
-use crate::workflow_state::{WorkflowError, WorkflowState, WorkflowStatus};
+use crate::db_trait::{unique_workflow_id, DB};
+use crate::worker::Worker;
+use crate::workflow_signal::{Signal, WorkflowSignal};
+use crate::workflow_state::{self, Closed, WorkflowError, WorkflowState, WorkflowStatus};
 use async_trait::async_trait;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
 use std::sync::Arc;
-use std::any::Any;
 
 use std::ops::Add;
-use std::pin::Pin;
 use std::time::{Duration, SystemTime};
-
 
 #[async_trait]
 pub trait Workflow: Send + Sync {
-
     fn name(&self) -> &str;
     fn static_name() -> &'static str
     where
         Self: Sized;
 
+    fn unique_id(&self) -> String
+where {
+        format!("{}-{}", self.name(), self.state().instance_id)
+    }
+    fn create_unique_id(instance_id: &str) -> String
+    where
+        Self: Sized,
+    {
+        format!("{}-{}", Self::static_name(), instance_id)
+    }
 
-    async fn run(&mut self, db: Arc<dyn DB>) -> Result<Option<Value>, WorkflowErrorType>;
+    fn claim_duration(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+
+    async fn run(
+        &mut self,
+        db: Arc<dyn DB>,
+        worker: Arc<Worker>,
+    ) -> Result<Option<Value>, WorkflowErrorType>;
 
     fn state_mut(&mut self) -> &mut WorkflowState; // Provides mutable access to the workflow state
     fn state(&self) -> &WorkflowState; // Provides mutable access to the workflow state
 
-    async fn execute(&mut self, db: Arc<dyn DB>) -> Result<(), WorkflowErrorType> {
+    async fn execute(
+        &mut self,
+        db: Arc<dyn DB>,
+        worker: Arc<Worker>,
+    ) -> Result<(), WorkflowErrorType> {
         {
+            let duration = self.claim_duration();
             let state = self.state_mut();
-            state.scheduled_at = SystemTime::add(SystemTime::now(), state.claim_duration);
+            state.scheduled_at = SystemTime::add(SystemTime::now(), duration);
             if state.start_time.is_none() {
                 state.start_time = Some(SystemTime::now());
             }
 
             db.insert(state.clone()).await;
         }
-        let result = self.run(db.clone()).await;
+        let result = self.run(db.clone(), worker).await;
         match result {
             Ok(output) => {
                 let state = self.state_mut();
                 state.mark_completed();
                 state.output = Some(serde_json::to_value(output).unwrap_or_default());
                 db.update(state.clone()).await;
-                eprintln!(
-                    "Workflow successfully completed {}- {}",
-                    self.name(),
-                    self.state().instance_id
-                );
+                eprintln!("Workflow successfully completed {}", self.unique_id());
                 Ok(())
             }
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
@@ -170,27 +186,22 @@ impl From<serde_json::Error> for WorkflowErrorType {
     }
 }
 
-// #[typetag::serde(tag = "workflow_type")]
-// #[async_trait]
-// pub trait Workflow_2: Send + Sync + Serialize + 'static {
-//     type Input: Serialize + for<'de> Deserialize<'de> + Send + Sync;
-//     type Output: Serialize + for<'de> Deserialize<'de> + Send + Sync;
-//     type Signal: Serialize + for<'de> Deserialize<'de> + Send + Sync;
-
-//     fn workflow_id(&self) -> &str;
-
-//     async fn run(
-//         &mut self,
-//         input: Self::Input,
-//         runner: Arc<WorkflowRunner_2<Self>>,
-//     ) -> Result<Self::Output, WorkflowErrorType_2>;
-
-//     async fn execute(
-//         &mut self,
-//         input: Self::Input,
-//         runner: Arc<WorkflowRunner_2<Self>>,
-//     ) -> Result<Self::Output, WorkflowErrorType_2> {
-//         let result = self.run(input, runner).await?;
-//         Ok(result)
-//     }
-// }
+pub fn parse_input<S>(state: &WorkflowState) -> Result<S, WorkflowErrorType>
+where
+    S: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+{
+    let input: S = state
+        .input
+        .as_ref()
+        .ok_or_else(|| WorkflowErrorType::PermanentError {
+            message: "No input provided".to_string(),
+            content: None,
+        })
+        .and_then(|value| {
+            serde_json::from_value(value.clone()).map_err(|e| WorkflowErrorType::PermanentError {
+                message: "Failed to deserialize input".to_string(),
+                content: None,
+            })
+        })?;
+    Ok(input)
+}

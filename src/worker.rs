@@ -1,18 +1,25 @@
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
+use tokio::time::sleep;
 
 use crate::db_trait::DB;
 use crate::workflow::{Workflow, WorkflowErrorType};
-use crate::workflow_state::WorkflowState;
+use crate::workflow_signal::{Signal, WorkflowSignal};
+use crate::workflow_state::{Closed, WorkflowError, WorkflowState, WorkflowStatus};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use std::any::TypeId;
+
 pub struct Worker {
     pub db: Arc<dyn DB>,
+
+    // pub workflows: HashMap<TypeId, Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
     pub workflows: HashMap<
         String,
         Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>,
@@ -31,12 +38,13 @@ impl Worker {
         self.workflows.keys().cloned().collect()
     }
 
-
-    pub fn add_workflow<F>(&mut self, name: &str, factory: F)
+    pub fn add_workflow<W, F>(&mut self, factory: F)
     where
+        W: Workflow + 'static,
         F: Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
     {
-        self.workflows.insert(name.to_string(), Box::new(factory));
+        let workflow_name = W::static_name().to_string();
+        self.workflows.insert(workflow_name, Box::new(factory));
     }
     // Schedule a workflow to run immediately
 
@@ -44,27 +52,31 @@ impl Worker {
         self.workflows.keys().cloned().collect()
     }
 
-    pub async fn schedule_now(
+    pub async fn schedule_now<W>(
         &self,
-        workflow_name: &str,
         instance_id: &str,
         input: Option<Value>,
-    ) -> Result<(), &'static str> {
-        self.schedule(workflow_name, instance_id, SystemTime::now(), input)
+    ) -> Result<(), &'static str>
+    where
+        W: Workflow + Send + Sync + 'static,
+    {
+        self.schedule::<W>(instance_id, SystemTime::now(), input)
             .await
     }
 
     // Schedule a workflow to run at a specific time
-    pub async fn schedule(
+    pub async fn schedule<W>(
         &self,
-        workflow_name: &str,
         instance_id: &str,
         scheduled_at: SystemTime,
         input: Option<Value>,
-    ) -> Result<(), &'static str> {
-        if let Some(_workflow_factory) = self.workflows.get(workflow_name) {
+    ) -> Result<(), &'static str>
+    where
+        W: Workflow + Send + Sync + 'static,
+    {
+        if let Some(_workflow_factory) = self.workflows.get(W::static_name()) {
             let workflow_state =
-                WorkflowState::new(workflow_name, instance_id, scheduled_at, input);
+                WorkflowState::new(W::static_name(), instance_id, scheduled_at, input);
             self.db.insert(workflow_state.clone()).await;
 
             Ok(())
@@ -72,123 +84,37 @@ impl Worker {
             Err("Workflow not found")
         }
     }
-    pub async fn execute(
+    pub async fn execute<W>(
         &self,
-        workflow_name: &str,
         instance_id: &str,
-        activity_name: &str,
         input: Option<Value>,
-    ) -> Result<oneshot::Receiver<Value>, &'static str> {
-        // Schedule the workflow immediately
-        self.schedule_now(workflow_name, instance_id, input).await?;
-
-        // Create a oneshot channel to return the result
-        let (sender, receiver) = oneshot::channel();
-
-        // Polling task to check activity completion
-        let db = Arc::clone(&self.db);
-        let instance_id = instance_id.to_string();
-        let workflow_name = workflow_name.to_string();
-        let activity_name = activity_name.to_string();
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
-            loop {
-                interval.tick().await;
-
-                // Fetch the workflow state to check activity status
-                if let Ok(Some(workflow_state)) = db.get_workflow_state(&workflow_name,&instance_id).await {
-                    println!("workflow state is {:?}", workflow_state);
-                    if let Some(result) = workflow_state.results.get(&activity_name) {
-                        // Activity is complete; send the result through the oneshot channel
-                        let _ = sender.send(result.clone());
-                        break;
-                    }
-                } else {
-                    eprintln!("Failed to fetch workflow state or activity result");
-                }
-            }
-        });
-
-        // Return the receiver to the caller so they can await the result
-        Ok(receiver)
-    }
-    pub async fn execute_and_await<T, I>(
-        &self,
-        workflow_name: &str,
-        instance_id: &str,
-        activity_name: &str,
-        input: Option<I>,
-    ) -> Result<T, &'static str>
-    where
-        T: DeserializeOwned,
-        I: Serialize,
-    {
-        // Call `execute` to get the receiver for the result
-        let receiver = self
-            .execute(
-                workflow_name,
-                instance_id,
-                activity_name,
-                input.map(|i| serde_json::to_value(i).unwrap()),
-            )
-            .await?;
-
-        // Await the result from the oneshot receiver
-        let result_value = receiver.await.map_err(|_| "Failed to receive result")?;
-
-        // Deserialize the result into the expected type
-        let result: T =
-            serde_json::from_value(result_value).map_err(|_| "Failed to deserialize result")?;
-
-        Ok(result)
-    }
-
-    pub async fn run(&self, interval_millis: u64) {
-        let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
-        loop {
-            interval.tick().await;
-            let now = SystemTime::now();
-            let due_workflows = self.db.query_due(now).await;
-            for workflow_state in due_workflows {
-                if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
-                    let db = Arc::clone(&self.db);
-
-                    let mut workflow = workflow_factory(workflow_state.clone());
-
-                    tokio::spawn(async move {
-                        let res = workflow.execute(db).await;
-                        if !res.is_ok() {
-                            eprintln!("Error executing workflow: {:?}", res);
-                        }
-                    });
-                }
-            }
-        }
-    }
-    pub async fn poll_result<T>(
-        &self,
-        workflow_name: &str,
-        instance_id: &str,
-        activity_name: Option<&str>,
         timeout: Duration,
-    ) -> Result<T, &'static str>
+    ) -> Result<WorkflowState, &'static str>
     where
-        T: DeserializeOwned,
+        W: Workflow + Send + Sync + 'static,
+    {
+        // Schedule the workflow immediately
+        self.schedule_now::<W>(instance_id, input).await?;
+        self.await_workflow::<W>(instance_id, timeout, 100).await
+    }
+
+    pub async fn await_workflow<W>(
+        &self,
+        instance_id: &str,
+        timeout: Duration,
+        interval_millis: u64,
+    ) -> Result<WorkflowState, &'static str>
+    where
+        W: Workflow + Send + Sync + 'static,
     {
         // Create a oneshot channel to send the result when found
         let (sender, receiver) = oneshot::channel();
-
-        // Clone db and instance_id for use within the spawned task
-        let db = Arc::clone(&self.db);
         let instance_id = instance_id.to_string();
-        let activity_name = activity_name.map(|s| s.to_string());
+        let db = self.db.clone();
 
-        let workflow_name_clone = workflow_name.to_string();
-        let instance_id_clone= instance_id.to_string();
-
+        let workflow_name = W::static_name().to_string();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(500));
+            let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
             let start = tokio::time::Instant::now();
 
             loop {
@@ -199,37 +125,173 @@ impl Worker {
                     let _ = sender.send(Err("Timeout waiting for result"));
                     break;
                 }
-
-                // Fetch the workflow state
-                if let Ok(Some(workflow_state)) = db.get_workflow_state(&workflow_name_clone, &instance_id_clone).await {
-                    // Check if we're waiting on a specific activity result or the overall output
-                    let result = if let Some(ref activity) = activity_name {
-                        workflow_state.results.get(activity)
-                    } else {
-                        workflow_state.output.as_ref()
-                    };
-
-                    if let Some(result_value) = result {
-                        // Send the result through the channel and exit the loop
-                        let _ = sender.send(Ok(result_value.clone()));
-                        break;
+                if let Ok(Some(workflow_state)) =
+                    db.get_workflow_state(&workflow_name, &instance_id).await
+                {
+                    match workflow_state.clone().status {
+                        WorkflowStatus::Closed(x) if x == Closed::Completed => {
+                            let _ = sender.send(Ok(workflow_state.clone()));
+                            break;
+                        }
+                        WorkflowStatus::Closed(_x) => {
+                            let _ = sender.send(Err("Workflow failed"));
+                            break;
+                        }
+                        _ => {}
                     }
+                } else {
+                    eprintln!("Failed to fetch workflow state or activity result");
                 }
             }
         });
 
-        // Wait for the result or the timeout
-        let result_value = receiver.await.map_err(|_| "Failed to receive result")??;
-
-        // Deserialize the result into the expected type
-        let result: T =
-            serde_json::from_value(result_value).map_err(|_| "Failed to deserialize result")?;
-
-        Ok(result)
+        receiver.await.map_err(|_| "Failed to receive result")?
+    }
+    pub async fn send_signal<S: WorkflowSignal>(
+        &self,
+        instance_id: &str,
+        signal: S,
+    ) -> Result<(), WorkflowErrorType> {
+        let signal_data = Signal {
+            id: signal.create_signal_id(instance_id),
+            timestamp: SystemTime::now(),
+            data: serde_json::to_value(&signal).unwrap(),
+        };
+        self.db.insert_signal(signal_data).await
     }
 
-    // Function to schedule a workflow to run immediately
+    // Poll the database to retrieve and deserialize the entire signal object
+    pub async fn await_signal<S: WorkflowSignal>(
+        &self,
+        instance_id: &str,
+        timeout: Duration,
+    ) -> Result<S, WorkflowErrorType> {
+        let signal_id = S::static_create_signal_id(instance_id);
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if start.elapsed() >= timeout {
+                return Err(WorkflowErrorType::PermanentError {
+                    message: "Signal timeout reached".to_string(),
+                    content: None,
+                });
+            }
+
+            if let Ok(Some(signal)) = self.db.get_signal(&signal_id).await {
+                let data: S = serde_json::from_value(signal.data).map_err(|e| {
+                    WorkflowErrorType::PermanentError {
+                        message: "Failed to deserialize signal".to_string(),
+                        content: None,
+                    }
+                })?;
+                return Ok(data);
+            }
+
+            sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    pub async fn run(self: Arc<Self>, interval_millis: u64) {
+        let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
+        loop {
+            interval.tick().await;
+            let now = SystemTime::now();
+
+            let due_workflows = self.db.query_due(now).await;
+            for workflow_state in due_workflows {
+                if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
+                    let db = Arc::clone(&self.db);
+
+                    let mut workflow = workflow_factory(workflow_state.clone());
+                    let me = self.clone();
+
+                    tokio::spawn(async move {
+                        let res = workflow.execute(db, me.clone()).await;
+                        if !res.is_ok() {
+                            eprintln!("Error executing workflow: {:?}", res);
+                        }
+                    });
+                }
+            }
+        }
+    }
+    pub async fn run_activity<T, F, Fut>(
+        &self,
+        name: &str,
+        state: &mut WorkflowState,
+        func: F,
+    ) -> Result<T, WorkflowErrorType>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<T, WorkflowErrorType>>,
+        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    {
+        // Check if the activity is already completed
+        if let Some(result) = state.get_activity_result(name) {
+            println!("Using cached result for activity '{}'", name);
+            let cached_result: T = serde_json::from_value(result.clone()).unwrap();
+            return Ok(cached_result);
+        }
+
+        // Run the function and await its result
+        match func().await {
+            Ok(result) => {
+                println!("Caching result for activity '{}'", name);
+                state.add_activity_result(name, &result);
+                self.db.update(state.clone()).await;
+                Ok(result)
+            }
+            Err(e) => {
+                state.errors.push(WorkflowError {
+                    error_type: e.clone(),
+                    activity_name: name.to_string(),
+                    timestamp: SystemTime::now(),
+                });
+                self.db.update(state.clone()).await;
+                Err(e)
+            }
+        }
+    }
+
+    pub async fn run_sync_activity<T, F>(
+        &self,
+        name: &str,
+        state: &mut WorkflowState,
+        func: F,
+    ) -> Result<T, WorkflowErrorType>
+    where
+        F: FnOnce() -> Result<T, WorkflowErrorType>,
+        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    {
+        // Check if the activity is already completed
+        if let Some(result) = state.get_activity_result(name) {
+            println!("Using cached result for activity '{}'", name);
+            let cached_result: T = serde_json::from_value(result.clone()).unwrap();
+            return Ok(cached_result);
+        }
+
+        // Run the function and get its result
+        match func() {
+            Ok(result) => {
+                println!("Caching result for activity '{}'", name);
+                state.add_activity_result(name, &result);
+                self.db.update(state.clone()).await; // Await the async update call
+                Ok(result)
+            }
+            Err(e) => {
+                state.errors.push(WorkflowError {
+                    error_type: e.clone(),
+                    activity_name: name.to_string(),
+                    timestamp: SystemTime::now(),
+                });
+                self.db.update(state.clone()).await; // Await the async update call
+                Err(e)
+            }
+        }
+    }
 }
+
+// Function to schedule a workflow to run immediately
 
 // Run the worker, periodically checking for due workflows and executing them
 //

@@ -51,6 +51,7 @@ impl DB for InMemoryDB {
 
     async fn insert(&self, state: WorkflowState) {
         let mut db = self.workflows.lock().unwrap();
+
         db.insert(state.unique_id(), state);
     }
 
@@ -59,8 +60,6 @@ impl DB for InMemoryDB {
         workflow_name: &str,
         instance_id: &str,
     ) -> Result<Option<WorkflowState>, &'static str> {
-        // let mut db = self.workflows.lock().unwrap();
-
         println!("getting workflow {}_{}", workflow_name, instance_id);
         let workflows = self.workflows.lock().unwrap();
         Ok(workflows
@@ -70,7 +69,8 @@ impl DB for InMemoryDB {
 
     async fn update(&self, state: WorkflowState) {
         let mut db = self.workflows.lock().unwrap();
-        db.insert(state.instance_id.clone(), state);
+        println!("updating workflow writing state {:?}", state);
+        db.insert(state.unique_id(), state);
     }
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState> {
         let db = self.workflows.lock().unwrap();

@@ -1,7 +1,7 @@
 use ask_workflow::db_trait::InMemoryDB;
 use ask_workflow::start_axum_server;
 use ask_workflow::worker::Worker;
-use ask_workflow::workflow::{ Workflow, WorkflowErrorType};
+use ask_workflow::workflow::{Workflow, WorkflowErrorType};
 use reqwest;
 use simple::create_user_workflow::{CreateUserWorkflow, CreateUserWorkflowContext};
 use simple::mock_db::MockDatabase;
@@ -21,7 +21,7 @@ use simple::basic_workflow::{BasicWorkflow, BasicWorkflowContext};
 async fn main() {
     let db: Arc<dyn ask_workflow::db_trait::DB> = Arc::new(InMemoryDB::new());
     let mut worker = Worker::new(db.clone());
-    worker.add_workflow(BasicWorkflow::static_name(), |state| {
+    worker.add_workflow::<BasicWorkflow,_>( |state| {
         let context = Arc::new(BasicWorkflowContext {
             http_client: reqwest::Client::new(),
         });
@@ -35,10 +35,10 @@ async fn main() {
     let mock_db_clone = mock_db.clone();
     let create_user_context = Arc::new(CreateUserWorkflowContext {
         http_client: Arc::new(reqwest::Client::new()),
-            db: mock_db_clone.clone()
+        db: mock_db_clone.clone(),
     });
 
-    worker.add_workflow(CreateUserWorkflow::static_name(), move |state| {
+    worker.add_workflow::<CreateUserWorkflow,_>(move |state| {
         return Box::new(CreateUserWorkflow {
             state,
             context: create_user_context.clone(),
@@ -46,8 +46,7 @@ async fn main() {
     });
 
     let _ = worker
-        .schedule(
-            BasicWorkflow::static_name(),
+        .schedule::<BasicWorkflow>(
             "workflow-instance_1",
             SystemTime::now() + Duration::from_secs(20), // Schedule for 20 seconds in the future
             None,
@@ -55,12 +54,11 @@ async fn main() {
         .await;
 
     let _ = worker
-        .schedule_now(BasicWorkflow::static_name(), "workflow_instance_2", None)
+        .schedule_now::<BasicWorkflow>("workflow_instance_2", None)
         .await;
 
     let _ = worker
-        .schedule(
-            BasicWorkflow::static_name(),
+        .schedule::<BasicWorkflow>(
             "failing_id",
             SystemTime::now() + Duration::from_secs(3),
             None,
@@ -68,7 +66,6 @@ async fn main() {
         .await;
 
     let worker = Arc::new(worker);
-
     let worker_clone = worker.clone();
 
     // Start the worker in its own background thread

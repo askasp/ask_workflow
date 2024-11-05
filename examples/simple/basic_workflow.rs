@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
-use ask_workflow::{activity::Activity, db_trait::DB, workflow::{Workflow, WorkflowErrorType}, workflow_state::WorkflowState};
+use ask_workflow::{
+    activity::Activity,
+    db_trait::DB,
+    worker::Worker,
+    workflow::{Workflow, WorkflowErrorType},
+    workflow_state::WorkflowState,
+};
 use axum::async_trait;
 use serde::Deserialize;
-
 
 #[derive(Deserialize)]
 pub struct HttpBinResponse {
@@ -89,11 +94,13 @@ impl Workflow for BasicWorkflow {
         &self.state
     }
 
-    async fn run(&mut self, db: Arc<dyn DB>) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
-        // Activity 1: print a string, retry up to 3 times
+    async fn run(
+        &mut self,
+        db: Arc<dyn DB>,
+        worker: Arc<Worker>,
+    ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
         let state = self.state_mut();
         let res = SimpleActivity {}.execute(state, db.clone()).await?;
-
         if state.instance_id == "failing_id".to_string() {
             FailingActivity {}.execute(state, db.clone()).await?;
         }
@@ -116,4 +123,3 @@ impl Workflow for BasicWorkflow {
 pub struct BasicWorkflowContext {
     pub http_client: reqwest::Client,
 }
-

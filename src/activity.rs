@@ -14,7 +14,7 @@ where
     T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 {
     // The core logic that the implementer will define
-    async fn run(&self) -> Result<T, WorkflowErrorType>;
+    async fn run(&self, ) -> Result<T, WorkflowErrorType>;
 
     // Activity name
     fn name(&self) -> &str;

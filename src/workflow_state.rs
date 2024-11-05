@@ -7,16 +7,16 @@ use std::time::{Duration, SystemTime};
 
 use crate::workflow::WorkflowErrorType;
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum WorkflowStatus {
     Open(Open),
     Closed(Closed),
 }
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Open {
     Running,
 }
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Closed {
     Completed,
     Cancelled,
@@ -41,7 +41,6 @@ pub struct WorkflowState {
     pub max_retries: u32,      // Maximum number of retries allowed
     pub output: Option<Value>, // Optional output of the workflow
     pub errors: Vec<WorkflowError>,
-    pub claim_duration: Duration,
     pub start_time: Option<SystemTime>,
     pub end_time: Option<SystemTime>,
     pub input: Option<Value>,
@@ -68,7 +67,6 @@ impl WorkflowState {
             output: None,
             status: WorkflowStatus::Open(Open::Running),
             errors: vec![],
-            claim_duration: Duration::from_secs(10),
             start_time: None,
             end_time: None,
             input,
