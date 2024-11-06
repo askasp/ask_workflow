@@ -1,4 +1,4 @@
-use crate::db_trait::{unique_workflow_id, DB};
+use crate::db_trait::{unique_workflow_id, WorkflowDbTrait};
 use crate::worker::Worker;
 use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{self, Closed, WorkflowError, WorkflowState, WorkflowStatus};
@@ -33,18 +33,14 @@ where {
         Duration::from_secs(30)
     }
 
-    async fn run(
-        &mut self,
-        db: Arc<dyn DB>,
-        worker: Arc<Worker>,
-    ) -> Result<Option<Value>, WorkflowErrorType>;
+    async fn run(&mut self, worker: Arc<Worker>) -> Result<Option<Value>, WorkflowErrorType>;
 
     fn state_mut(&mut self) -> &mut WorkflowState; // Provides mutable access to the workflow state
     fn state(&self) -> &WorkflowState; // Provides mutable access to the workflow state
 
     async fn execute(
         &mut self,
-        db: Arc<dyn DB>,
+        db: Arc<dyn WorkflowDbTrait>,
         worker: Arc<Worker>,
     ) -> Result<(), WorkflowErrorType> {
         {
@@ -55,9 +51,9 @@ where {
                 state.start_time = Some(SystemTime::now());
             }
 
-            db.insert(state.clone()).await;
+            db.update(state.clone()).await;
         }
-        let result = self.run(db.clone(), worker).await;
+        let result = self.run(worker).await;
         match result {
             Ok(output) => {
                 let state = self.state_mut();
@@ -70,7 +66,7 @@ where {
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
                 {
                     let state = self.state_mut();
-                    state.retry();
+                    state.retry(e.clone());
                     db.update(state.clone()).await;
                 }
                 eprintln!(
@@ -83,7 +79,7 @@ where {
             }
             Err(e2) => {
                 let state = self.state_mut();
-                state.mark_failed();
+                state.mark_failed(e2.clone());
                 state.output = Some(serde_json::to_value(e2.clone()).unwrap_or_default());
                 db.update(state.clone()).await;
                 Err(e2)
@@ -95,7 +91,7 @@ where {
 pub async fn run_activity<T, F, Fut>(
     name: &str,
     state: &mut WorkflowState,
-    db: Arc<dyn DB>,
+    worker: Arc<Worker>,
     func: F,
 ) -> Result<T, WorkflowErrorType>
 where
@@ -115,16 +111,16 @@ where
         Ok(result) => {
             println!("Caching result for activity '{}'", name);
             state.add_activity_result(name, &result);
-            db.update(state.clone()).await;
+            worker.db.update(state.clone()).await;
             Ok(result)
         }
         Err(e) => {
             state.errors.push(WorkflowError {
                 error_type: e.clone(),
-                activity_name: name.to_string(),
+                activity_name: Some(name.to_string()),
                 timestamp: SystemTime::now(),
             });
-            db.update(state.clone()).await;
+            worker.db.update(state.clone()).await;
             Err(e)
         }
     }
@@ -132,7 +128,7 @@ where
 pub async fn run_sync_activity<T, F>(
     name: &str,
     state: &mut WorkflowState,
-    db: Arc<dyn DB>,
+    worker: Arc<Worker>,
     func: F,
 ) -> Result<T, WorkflowErrorType>
 where
@@ -151,22 +147,22 @@ where
         Ok(result) => {
             println!("Caching result for activity '{}'", name);
             state.add_activity_result(name, &result);
-            db.update(state.clone()).await; // Await the async update call
+            worker.db.update(state.clone()).await; // Await the async update call
             Ok(result)
         }
         Err(e) => {
             state.errors.push(WorkflowError {
                 error_type: e.clone(),
-                activity_name: name.to_string(),
+                activity_name: Some(name.to_string()),
                 timestamp: SystemTime::now(),
             });
-            db.update(state.clone()).await; // Await the async update call
+            worker.db.update(state.clone()).await; // Await the async update call
             Err(e)
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum WorkflowErrorType {
     TransientError {
         message: String,

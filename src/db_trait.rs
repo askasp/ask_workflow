@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 // DB trait that defines the required operations for a workflow database
 #[async_trait]
-pub trait DB: Send + Sync {
+pub trait WorkflowDbTrait: Send + Sync {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
     async fn get_signal(&self, signal_id: &String) -> Result<Option<Signal>, WorkflowErrorType>;
     async fn insert(&self, state: WorkflowState);
@@ -43,7 +43,7 @@ impl InMemoryDB {
 }
 
 #[async_trait]
-impl DB for InMemoryDB {
+impl WorkflowDbTrait for InMemoryDB {
     async fn get_all(&self) -> Vec<WorkflowState> {
         let db = self.workflows.lock().unwrap();
         db.values().cloned().collect()
@@ -73,6 +73,7 @@ impl DB for InMemoryDB {
         db.insert(state.unique_id(), state);
     }
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState> {
+
         let db = self.workflows.lock().unwrap();
         db.values()
             .filter(|workflow| {

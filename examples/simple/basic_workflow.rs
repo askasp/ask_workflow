@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use ask_workflow::{
-    activity::Activity,
-    db_trait::DB,
+    db_trait::WorkflowDbTrait,
     worker::Worker,
     workflow::{Workflow, WorkflowErrorType},
     workflow_state::WorkflowState,
 };
 use axum::async_trait;
 use serde::Deserialize;
+use serde_json::json;
 
 #[derive(Deserialize)]
 pub struct HttpBinResponse {
@@ -16,60 +16,60 @@ pub struct HttpBinResponse {
     pub url: String,
 }
 
-// Example of a function that performs a GET request and can be retried
-pub struct FetchHttpActivity {
-    pub url: String,
-    pub http_client: reqwest::Client,
-}
+// // Example of a function that performs a GET request and can be retried
+// pub struct FetchHttpActivity {
+//     pub url: String,
+//     pub http_client: reqwest::Client,
+// }
 
-#[async_trait]
-impl Activity<u16> for FetchHttpActivity {
-    async fn run(&self) -> Result<u16, WorkflowErrorType> {
-        let res = self
-            .http_client
-            .get(&self.url)
-            .send()
-            .await
-            .map_err(|err| WorkflowErrorType::TransientError {
-                message: format!("HTTP request failed: {}", err),
-                content: None,
-            })?;
+// #[async_trait]
+// impl Activity<u16> for FetchHttpActivity {
+//     async fn run(&self) -> Result<u16, WorkflowErrorType> {
+//         let res = self
+//             .http_client
+//             .get(&self.url)
+//             .send()
+//             .await
+//             .map_err(|err| WorkflowErrorType::TransientError {
+//                 message: format!("HTTP request failed: {}", err),
+//                 content: None,
+//             })?;
 
-        let status = res.status().as_u16();
-        Ok(status)
-    }
+//         let status = res.status().as_u16();
+//         Ok(status)
+//     }
 
-    fn name(&self) -> &str {
-        "FetchHttpActivity"
-    }
-}
-pub struct SimpleActivity;
-#[async_trait]
-impl Activity<String> for SimpleActivity {
-    async fn run(&self) -> Result<String, WorkflowErrorType> {
-        println!("Running a simple activity!");
+//     fn name(&self) -> &str {
+//         "FetchHttpActivity"
+//     }
+// // }
+// pub struct SimpleActivity;
+// #[async_trait]
+// impl Activity<String> for SimpleActivity {
+//     async fn run(&self) -> Result<String, WorkflowErrorType> {
+//         println!("Running a simple activity!");
 
-        Ok("Activity completed".to_string())
-    }
+//         Ok("Activity completed".to_string())
+//     }
 
-    fn name(&self) -> &str {
-        "SimpleActivity"
-    }
-}
-pub struct FailingActivity;
-#[async_trait]
-impl Activity<String> for FailingActivity {
-    async fn run(&self) -> Result<String, WorkflowErrorType> {
-        println!("Running a failining activity!");
-        Err(WorkflowErrorType::TransientError {
-            message: "Failed".to_string(),
-            content: None,
-        })
-    }
-    fn name(&self) -> &str {
-        "FailingActivity"
-    }
-}
+//     fn name(&self) -> &str {
+//         "SimpleActivity"
+//     }
+// }
+// pub struct FailingActivity;
+// #[async_trait]
+// impl Activity<String> for FailingActivity {
+//     async fn run(&self) -> Result<String, WorkflowErrorType> {
+//         println!("Running a failining activity!");
+//         Err(WorkflowErrorType::TransientError {
+//             message: "Failed".to_string(),
+//             content: None,
+//         })
+//     }
+//     fn name(&self) -> &str {
+//         "FailingActivity"
+//     }
+// }
 
 #[derive(Clone)]
 pub struct BasicWorkflow {
@@ -96,25 +96,24 @@ impl Workflow for BasicWorkflow {
 
     async fn run(
         &mut self,
-        db: Arc<dyn DB>,
         worker: Arc<Worker>,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
         let state = self.state_mut();
-        let res = SimpleActivity {}.execute(state, db.clone()).await?;
-        if state.instance_id == "failing_id".to_string() {
-            FailingActivity {}.execute(state, db.clone()).await?;
-        }
+        println!("about to run simple acitvities");
 
-        let ctx = self.context.clone();
-        let res2 = FetchHttpActivity {
-            url: "https://httpbin.org/get".to_string(),
-            http_client: ctx.http_client.clone(),
-        }
-        .run()
-        .await?;
+        worker
+            .run_sync_activity("Simple_1", state, || {
+                println!("Running simple");
+                Ok(json!({"res":"hei"}))
+            })
+            .await?;
 
-        println!("Activity 1 completed: {}", res);
-        println!("Activity 2 completed: {}", res2);
+        worker
+            .run_sync_activity("Simple_2", state, || {
+                println!("Running simple");
+                Ok(json!({"res":"hei"}))
+            })
+            .await?;
 
         Ok(None)
     }

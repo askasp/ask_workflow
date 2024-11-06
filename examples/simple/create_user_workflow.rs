@@ -1,8 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
-    activity::Activity,
-    db_trait::DB,
+    db_trait::WorkflowDbTrait,
     workflow::{run_activity, run_sync_activity, Workflow, WorkflowErrorType},
     workflow_signal::WorkflowSignal,
     workflow_state::WorkflowState,
@@ -62,7 +61,6 @@ impl Workflow for CreateUserWorkflow {
     }
     async fn run(
         &mut self,
-        db: Arc<dyn DB>,
         worker: Arc<ask_workflow::worker::Worker>,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
         // Clone necessary data from `self` to avoid multiple borrows
@@ -255,12 +253,13 @@ mod tests {
     use ask_workflow::worker::Worker;
     // Adjust as necessary
     use ask_workflow::workflow_state::{Closed, WorkflowState, WorkflowStatus};
+    use serde_json::json;
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
     async fn test_create_user_workflow() {
         println!("Running test_create_user_workflow");
-        let db: Arc<dyn ask_workflow::db_trait::DB> = Arc::new(InMemoryDB::new());
+        let db: Arc<dyn ask_workflow::db_trait::WorkflowDbTrait> = Arc::new(InMemoryDB::new());
         let mut worker = Worker::new(db.clone());
         let mock_db = Arc::new(MockDatabase::new());
         let mock_db_clone = mock_db.clone();
@@ -289,7 +288,7 @@ mod tests {
         };
 
         let _ = worker
-            .schedule_now::<CreateUserWorkflow>("Aksel", Some(json!(user_input)))
+            .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", Some(user_input))
             .await;
 
         let unverified_user: NonVerifiedUserOut = worker

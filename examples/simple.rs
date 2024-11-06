@@ -2,6 +2,8 @@ use ask_workflow::db_trait::InMemoryDB;
 use ask_workflow::start_axum_server;
 use ask_workflow::worker::Worker;
 use ask_workflow::workflow::{Workflow, WorkflowErrorType};
+use ask_workflow::workflow_mongodb::MongoDB;
+use mongodb::Client;
 use reqwest;
 use simple::create_user_workflow::{CreateUserWorkflow, CreateUserWorkflowContext};
 use simple::mock_db::MockDatabase;
@@ -19,9 +21,15 @@ use simple::basic_workflow::{BasicWorkflow, BasicWorkflowContext};
 
 #[tokio::main]
 async fn main() {
-    let db: Arc<dyn ask_workflow::db_trait::DB> = Arc::new(InMemoryDB::new());
+    let uri = std::env::var("asdadMONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017/".into());
+    let client = Client::with_uri_str(&uri).await.unwrap();
+    let database = Arc::new(client.database("ask_workflow"));
+
+    let db: Arc<dyn ask_workflow::db_trait::WorkflowDbTrait> =
+        Arc::new(MongoDB::new(database.clone()));
+
     let mut worker = Worker::new(db.clone());
-    worker.add_workflow::<BasicWorkflow,_>( |state| {
+    worker.add_workflow::<BasicWorkflow, _>(|state| {
         let context = Arc::new(BasicWorkflowContext {
             http_client: reqwest::Client::new(),
         });
@@ -38,32 +46,21 @@ async fn main() {
         db: mock_db_clone.clone(),
     });
 
-    worker.add_workflow::<CreateUserWorkflow,_>(move |state| {
+    worker.add_workflow::<CreateUserWorkflow, _>(move |state| {
         return Box::new(CreateUserWorkflow {
             state,
             context: create_user_context.clone(),
         });
     });
 
-    let _ = worker
-        .schedule::<BasicWorkflow>(
-            "workflow-instance_1",
-            SystemTime::now() + Duration::from_secs(20), // Schedule for 20 seconds in the future
-            None,
-        )
-        .await;
+    println!("adding workflow");
 
     let _ = worker
-        .schedule_now::<BasicWorkflow>("workflow_instance_2", None)
-        .await;
-
-    let _ = worker
-        .schedule::<BasicWorkflow>(
-            "failing_id",
-            SystemTime::now() + Duration::from_secs(3),
+        .schedule_now::<BasicWorkflow, ()>(
+            &cuid::cuid1().unwrap(),
             None,
         )
-        .await;
+        .await.unwrap();
 
     let worker = Arc::new(worker);
     let worker_clone = worker.clone();

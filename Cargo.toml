@@ -9,7 +9,7 @@ serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.132"
 
 reqwest = { version = "0.12.8", features = ["json"] }
-tokio = { version = "1.40.0", features = ["full", "rt-multi-thread"] }
+tokio = { version = "1.33.0", features = ["full", "rt-multi-thread"] }
 typetag = "0.2.18"
 futures = "0.3.31"
 axum = {version= "0.7.7", features=["macros"]}
@@ -17,3 +17,4 @@ tera = { version = "1.20.0", features = ["builtins"] }
 chrono = "0.4.38"
 tracing = "0.1.40"
 cuid = "1.3.3"
+mongodb = "3.1.0"

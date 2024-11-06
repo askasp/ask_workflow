@@ -25,7 +25,6 @@ Create workflow
    {% set main_value = 8 %}
    {% set subtext = "Running smoothly" %}
    {% include "workflows/components/card.html" %}
-
   </div>
 
    <div class="bg-white border shadow-md rounded-xl p-4 flex justify-between items-center">
@@ -40,12 +39,10 @@ Create workflow
         </button>
       </div>
 
-<div 
-    hx-get="/workflows?component=WorkflowTable" 
-    hx-trigger="every 5s" 
-    hx-swap="innerHTML">
+      <div id="table">
     {% include "workflows/components/workflow_table.html" %}
-</div>
+      </div>
+              
 
       </div>
       </div>
@@ -80,7 +77,11 @@ Create workflow
             <!-- Modal body -->
 
             <form 
-                action="/workflows" method="POST" class="p-4 md:p-5" >
+                hx-post="/workflows" 
+                hx-trigger="htmx:afterRequest:closeModal"
+                hx-target="html"
+                hx-swap="outerHTML"
+                class="p-4 md:p-5" >
                 <div class="grid gap-4 mb-4 grid-cols-2">
 
                     <div class="col-span-2 sm:col-span-1">
@@ -111,6 +112,12 @@ Create workflow
         </div>
     </div>
 </div>
+<script>
+    // Listen for the custom closeModal event
+    document.body.addEventListener("closeModal", function() {
+        document.getElementById('crud-modal').style.display = 'none';
+    });
+</script>
 
 {% endblock content %}
 

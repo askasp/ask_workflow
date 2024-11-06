@@ -20,17 +20,17 @@ pub enum Open {
 pub enum Closed {
     Completed,
     Cancelled,
-    Failed,
+    Failed { error: WorkflowErrorType },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct WorkflowError {
     pub error_type: WorkflowErrorType,
-    pub activity_name: String,
+    pub activity_name: Option<String>,
     pub timestamp: SystemTime,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct WorkflowState {
     pub workflow_type: String,
     pub instance_id: String,
@@ -78,8 +78,8 @@ impl WorkflowState {
         self.status = WorkflowStatus::Closed(Closed::Completed);
         self.end_time = Some(SystemTime::now());
     }
-    pub fn mark_failed(&mut self) {
-        self.status = WorkflowStatus::Closed(Closed::Failed)
+    pub fn mark_failed(&mut self, error: WorkflowErrorType) {
+        self.status = WorkflowStatus::Closed(Closed::Failed { error })
     }
 
     // Check if an activity has already completed
@@ -114,14 +114,14 @@ impl WorkflowState {
     }
 
     // Mark the workflow as failed and ready for the next retry
-    pub fn retry(&mut self) {
+    pub fn retry(&mut self, error: WorkflowErrorType) {
         if self.retries < self.max_retries {
             self.retries += 1;
             if let Some(next_time) = self.calculate_next_retry() {
                 self.scheduled_at = next_time;
             }
         } else {
-            self.status = WorkflowStatus::Closed(Closed::Failed)
+            self.status = WorkflowStatus::Closed(Closed::Failed { error })
         }
     }
 }
@@ -132,7 +132,7 @@ impl fmt::Display for WorkflowStatus {
             WorkflowStatus::Open(Open::Running) => "Running",
             WorkflowStatus::Closed(Closed::Completed) => "Completed",
             WorkflowStatus::Closed(Closed::Cancelled) => "Cancelled",
-            WorkflowStatus::Closed(Closed::Failed) => "Failed",
+            WorkflowStatus::Closed(Closed::Failed{error:x}) => &format!("Failed {:?}", x),
         };
         write!(f, "{}", status_str)
     }

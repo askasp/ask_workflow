@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::time::{sleep };
 
-use crate::db_trait::{ DB};
+use crate::db_trait::{ WorkflowDbTrait};
 use crate::workflow::{Workflow, WorkflowErrorType};
 use crate::workflow_state::{WorkflowError, WorkflowState};
 
@@ -49,7 +49,7 @@ pub trait WorkflowSignal: Serialize + for<'de> Deserialize<'de> + Send + Sync + 
     }
     async fn receive_signal(
         &self,
-        db: Arc<dyn DB>,
+        db: Arc<dyn WorkflowDbTrait>,
         instance_id: &str,
         poll_interval: Duration,
         timeout: Duration,
@@ -83,7 +83,7 @@ pub trait WorkflowSignal: Serialize + for<'de> Deserialize<'de> + Send + Sync + 
     }
     async fn send_signal(
         &self,
-        db: Arc<dyn DB>,
+        db: Arc<dyn WorkflowDbTrait>,
         instance_id: &str,
     ) -> Result<(), WorkflowErrorType> {
         let signal_data = Signal {

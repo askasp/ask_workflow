@@ -4,7 +4,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 
-use crate::db_trait::DB;
+use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::{Workflow, WorkflowErrorType};
 use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{Closed, WorkflowError, WorkflowState, WorkflowStatus};
@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime};
 use std::any::TypeId;
 
 pub struct Worker {
-    pub db: Arc<dyn DB>,
+    pub db: Arc<dyn WorkflowDbTrait>,
 
     // pub workflows: HashMap<TypeId, Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
     pub workflows: HashMap<
@@ -28,7 +28,7 @@ pub struct Worker {
 
 impl Worker {
     // Create a new Worker with the provided database
-    pub fn new(db: Arc<dyn DB>) -> Self {
+    pub fn new(db: Arc<dyn WorkflowDbTrait>) -> Self {
         Self {
             db,
             workflows: HashMap::new(),
@@ -52,31 +52,48 @@ impl Worker {
         self.workflows.keys().cloned().collect()
     }
 
-    pub async fn schedule_now<W>(
+    pub async fn schedule_now_with_name(
         &self,
+        workflow_name: &str,
         instance_id: &str,
         input: Option<Value>,
+    ) -> Result<(), &'static str> {
+        self.schedule_with_name(workflow_name, instance_id, SystemTime::now(), input)
+            .await
+    }
+
+    pub async fn schedule_now<W, T>(
+        &self,
+        instance_id: &str,
+        input: Option<T>,
     ) -> Result<(), &'static str>
     where
         W: Workflow + Send + Sync + 'static,
+        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
-        self.schedule::<W>(instance_id, SystemTime::now(), input)
+        self.schedule::<W, T>(instance_id, SystemTime::now(), input)
             .await
     }
 
     // Schedule a workflow to run at a specific time
-    pub async fn schedule<W>(
+    //
+    pub async fn schedule<W, T>(
         &self,
         instance_id: &str,
         scheduled_at: SystemTime,
-        input: Option<Value>,
+        input: Option<T>,
     ) -> Result<(), &'static str>
     where
         W: Workflow + Send + Sync + 'static,
+        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
         if let Some(_workflow_factory) = self.workflows.get(W::static_name()) {
-            let workflow_state =
-                WorkflowState::new(W::static_name(), instance_id, scheduled_at, input);
+            let workflow_state = WorkflowState::new(
+                W::static_name(),
+                instance_id,
+                scheduled_at,
+                input.map(|i| serde_json::to_value(i).unwrap()),
+            );
             self.db.insert(workflow_state.clone()).await;
 
             Ok(())
@@ -84,17 +101,42 @@ impl Worker {
             Err("Workflow not found")
         }
     }
-    pub async fn execute<W>(
+
+    pub async fn schedule_with_name(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+        scheduled_at: SystemTime,
+        input: Option<Value>,
+    ) -> Result<(), &'static str> {
+        if let Some(_workflow_factory) = self.workflows.get(workflow_name) {
+            let workflow_state =
+                WorkflowState::new(workflow_name, instance_id, scheduled_at, input);
+            self.db.insert(workflow_state.clone()).await;
+
+            Ok(())
+        } else {
+            Err("Workflow not found")
+        }
+    }
+
+    pub async fn execute<W, T>(
         &self,
         instance_id: &str,
-        input: Option<Value>,
+        input: Option<T>,
         timeout: Duration,
-    ) -> Result<WorkflowState, &'static str>
+    ) -> Result<WorkflowState, WorkflowErrorType>
     where
         W: Workflow + Send + Sync + 'static,
+        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
         // Schedule the workflow immediately
-        self.schedule_now::<W>(instance_id, input).await?;
+        self.schedule_now::<W, T>(instance_id, input)
+            .await
+            .map_err(|_| WorkflowErrorType::PermanentError {
+                message: "Cant schedule wf".to_string(),
+                content: None,
+            })?;
         self.await_workflow::<W>(instance_id, timeout, 100).await
     }
 
@@ -103,7 +145,7 @@ impl Worker {
         instance_id: &str,
         timeout: Duration,
         interval_millis: u64,
-    ) -> Result<WorkflowState, &'static str>
+    ) -> Result<WorkflowState, WorkflowErrorType>
     where
         W: Workflow + Send + Sync + 'static,
     {
@@ -122,19 +164,22 @@ impl Worker {
 
                 // Timeout check
                 if start.elapsed() >= timeout {
-                    let _ = sender.send(Err("Timeout waiting for result"));
+                    let _ = sender.send(Err(WorkflowErrorType::TransientError {
+                        message: "Timeout waiting for result".to_string(),
+                        content: None,
+                    }));
                     break;
                 }
                 if let Ok(Some(workflow_state)) =
                     db.get_workflow_state(&workflow_name, &instance_id).await
                 {
                     match workflow_state.clone().status {
-                        WorkflowStatus::Closed(x) if x == Closed::Completed => {
+                        WorkflowStatus::Closed(Closed::Completed) => {
                             let _ = sender.send(Ok(workflow_state.clone()));
                             break;
                         }
-                        WorkflowStatus::Closed(_x) => {
-                            let _ = sender.send(Err("Workflow failed"));
+                        WorkflowStatus::Closed(Closed::Failed { error: e }) => {
+                            let _ = sender.send(Err(e));
                             break;
                         }
                         _ => {}
@@ -145,7 +190,12 @@ impl Worker {
             }
         });
 
-        receiver.await.map_err(|_| "Failed to receive result")?
+        receiver
+            .await
+            .map_err(|_| WorkflowErrorType::TransientError {
+                message: "Failed to await workflow".to_string(),
+                content: None,
+            })?
     }
     pub async fn send_signal<S: WorkflowSignal>(
         &self,
@@ -194,10 +244,13 @@ impl Worker {
     pub async fn run(self: Arc<Self>, interval_millis: u64) {
         let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
         loop {
+            println!("Worker running");
             interval.tick().await;
             let now = SystemTime::now();
 
             let due_workflows = self.db.query_due(now).await;
+            println!("Due workflows: {:?}", due_workflows.len());
+
             for workflow_state in due_workflows {
                 if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
                     let db = Arc::clone(&self.db);
@@ -244,7 +297,7 @@ impl Worker {
             Err(e) => {
                 state.errors.push(WorkflowError {
                     error_type: e.clone(),
-                    activity_name: name.to_string(),
+                    activity_name: Some(name.to_string()),
                     timestamp: SystemTime::now(),
                 });
                 self.db.update(state.clone()).await;
@@ -281,7 +334,7 @@ impl Worker {
             Err(e) => {
                 state.errors.push(WorkflowError {
                     error_type: e.clone(),
-                    activity_name: name.to_string(),
+                    activity_name: Some(name.to_string()),
                     timestamp: SystemTime::now(),
                 });
                 self.db.update(state.clone()).await; // Await the async update call

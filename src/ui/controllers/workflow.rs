@@ -48,11 +48,10 @@ async fn add(
 
     println!("parsed input is: {:?}", input);
 
-    // let _ = app_state
-    //     .worker
-    //     .schedule_now(&params.name, &params.id, input.clone())
-    //     .await;
-
+    let _ = app_state
+        .worker
+        .schedule_now_with_name(&params.name, &params.id, input.clone())
+        .await;
 
     render_page(
         &app_state,
