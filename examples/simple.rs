@@ -23,7 +23,7 @@ use simple::basic_workflow::{BasicWorkflow, BasicWorkflowContext};
 async fn main() {
     let uri = std::env::var("asdadMONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017/".into());
     let client = Client::with_uri_str(&uri).await.unwrap();
-    let database = Arc::new(client.database("ask_workflow"));
+    let database = client.database("ask_workflow");
 
     let db: Arc<dyn ask_workflow::db_trait::WorkflowDbTrait> =
         Arc::new(MongoDB::new(database.clone()));
