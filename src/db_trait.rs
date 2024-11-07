@@ -11,6 +11,7 @@ use std::time::SystemTime;
 #[async_trait]
 pub trait WorkflowDbTrait: Send + Sync {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
+    async fn set_signal_processed(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
     async fn get_signals(
         &self,
         workflow_name: &str,
@@ -94,6 +95,13 @@ impl WorkflowDbTrait for InMemoryDB {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
         let mut db = self.signals.lock().unwrap();
         db.insert(signal.id.clone(), signal);
+        Ok(())
+    }
+    async fn set_signal_processed(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
+        let mut signal_clone = signal.clone();
+        signal_clone.processed = true;
+        let mut db = self.signals.lock().unwrap();
+        db.insert(signal.id.clone(), signal_clone);
         Ok(())
     }
 

@@ -179,6 +179,30 @@ impl WorkflowDbTrait for MongoDB {
         results
     }
 
+    async fn set_signal_processed(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
+        let mut signal_clone = signal.clone();
+        signal_clone.processed = true;
+
+        let query = doc! {
+            "_id": signal.id
+        };
+
+        let doc =
+            to_document(&signal_clone).map_err(|e| WorkflowErrorType::TransientError {
+                message: format!("Serialization failed: {}", e),
+                content: None,
+            })?;
+
+        self.signals.replace_one(query, doc).await.map_err(|e| {
+            WorkflowErrorType::TransientError {
+                message: format!("Failed to update signal: {}", e),
+                content: None,
+            }
+        })?;
+
+        Ok(())
+    }
+
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
         let mut doc = to_document(&signal).map_err(|e| WorkflowErrorType::TransientError {
             message: format!("Serialization failed: {}", e),
