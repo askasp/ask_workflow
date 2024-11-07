@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures::stream::StreamExt;
 use futures::stream::TryStreamExt;
 use mongodb::bson::de::from_document;
 use mongodb::bson::ser::to_document;
@@ -229,16 +230,46 @@ impl WorkflowDbTrait for MongoDB {
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
         let query = doc! { "processed": false, "workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
         println!("Query: {:?}", query);
-        let result =
+        let cursor =
             self.signals
-                .find_one(query)
+                .find(query)
                 .await
                 .map_err(|e| WorkflowErrorType::TransientError {
                     message: format!("Failed to retrieve signal: {}", e),
                     content: None,
                 })?;
-        println!("Result: {:?}", result);
-        Ok(result.and_then(|doc| from_document(doc).ok()))
+        let results: Vec<Signal> = cursor
+            .filter_map(|doc| async {
+                match doc {
+                    Ok(doc) => match from_document::<Signal>(doc) {
+                        Ok(signal) => Some(signal),
+                        Err(e) => {
+                            eprintln!("Failed to deserialize signal: {}", e); // log the error
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error reading document from cursor: {}", e); // log the error
+                        None
+                    }
+                }
+            })
+            .collect()
+            .await;
+
+        Ok(Some(results))
+
+        //
+        // println!("Result: {:?}", results);
+        // let res = results
+        //     .map(|doc| from_document(doc).ok())
+        //     .collect::<Result<Vec<Signal>, _>>()
+        //     .map_err(|e| WorkflowErrorType::TransientError {
+        //     message: format!("Failed to deserialize signal: {}", e),
+        //     content: None,
+        //     })?;
+
+        // Ok(results.and_then(|doc| from_document(doc).ok()))
     }
 }
 
