@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use ask_workflow::{
     db_trait::WorkflowDbTrait,
     workflow::{run_activity, run_sync_activity, Workflow, WorkflowErrorType},
-    workflow_signal::WorkflowSignal,
+    workflow_signal::{SignalDirection, WorkflowSignal},
     workflow_state::WorkflowState,
 };
 use axum::async_trait;
@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Sleep};
 
 use super::mock_db::{MockDatabase, User};
-
 
 #[derive(Clone)]
 pub struct CreateUserWorkflow {
@@ -37,12 +36,18 @@ pub struct NonVerifiedUserOut {
 }
 impl WorkflowSignal for NonVerifiedUserOut {
     type Workflow = CreateUserWorkflow;
+    fn direction() -> ask_workflow::workflow_signal::SignalDirection {
+        SignalDirection::FromWorkflow
+    }
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct GeneratedCodeOut;
 impl WorkflowSignal for GeneratedCodeOut {
     type Workflow = CreateUserWorkflow;
+    fn direction() -> ask_workflow::workflow_signal::SignalDirection {
+        SignalDirection::ToWorkflow
+    }
 }
 
 #[async_trait::async_trait]
@@ -244,6 +249,9 @@ pub struct VerificationCodeSignal {
 #[async_trait]
 impl WorkflowSignal for VerificationCodeSignal {
     type Workflow = CreateUserWorkflow;
+    fn direction() -> ask_workflow::workflow_signal::SignalDirection {
+        SignalDirection::ToWorkflow
+    }
 }
 
 #[cfg(test)]

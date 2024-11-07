@@ -1,3 +1,4 @@
+use cuid::cuid1;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -6,7 +7,7 @@ use tokio::time::sleep;
 
 use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::{Workflow, WorkflowErrorType};
-use crate::workflow_signal::{Signal, WorkflowSignal};
+use crate::workflow_signal::{Signal, SignalDirection, WorkflowSignal};
 use crate::workflow_state::{Closed, WorkflowError, WorkflowState, WorkflowStatus};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -203,7 +204,12 @@ impl Worker {
         signal: S,
     ) -> Result<(), WorkflowErrorType> {
         let signal_data = Signal {
-            id: signal.create_signal_id(instance_id),
+            id: cuid::cuid1().unwrap(),
+            instance_id: instance_id.to_string(),
+            signal_name: S::static_signal_name().to_string(),
+            processed: false,
+            direction: S::direction(),
+            workflow_name: S::Workflow::static_name().to_string(),
             timestamp: SystemTime::now(),
             data: serde_json::to_value(&signal).unwrap(),
         };
@@ -216,7 +222,6 @@ impl Worker {
         instance_id: &str,
         timeout: Duration,
     ) -> Result<S, WorkflowErrorType> {
-        let signal_id = S::static_create_signal_id(instance_id);
         let start = tokio::time::Instant::now();
 
         loop {
@@ -227,7 +232,21 @@ impl Worker {
                 });
             }
 
-            if let Ok(Some(signal)) = self.db.get_signal(&signal_id).await {
+            if let Ok(Some(signals)) = self
+                .db
+                .get_signals(
+                    S::Workflow::static_name(),
+                    instance_id,
+                    S::static_signal_name(),
+                    S::direction(),
+                )
+                .await
+            {
+                if signals.len() == 0 {
+                    sleep(Duration::from_millis(200)).await;
+                    continue;
+                }
+                let signal = signals[0].clone();
                 let data: S = serde_json::from_value(signal.data).map_err(|e| {
                     WorkflowErrorType::PermanentError {
                         message: "Failed to deserialize signal".to_string(),

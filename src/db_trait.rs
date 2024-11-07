@@ -1,5 +1,5 @@
 use crate::workflow::WorkflowErrorType;
-use crate::workflow_signal::Signal;
+use crate::workflow_signal::{Signal, SignalDirection};
 use crate::workflow_state::{self, Open, WorkflowError, WorkflowState, WorkflowStatus};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -11,7 +11,13 @@ use std::time::SystemTime;
 #[async_trait]
 pub trait WorkflowDbTrait: Send + Sync {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
-    async fn get_signal(&self, signal_id: &String) -> Result<Option<Signal>, WorkflowErrorType>;
+    async fn get_signals(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+        signal_name: &str,
+        direction: SignalDirection,
+    ) -> Result<Option<Vec<Signal>>, WorkflowErrorType>;
     async fn insert(&self, state: WorkflowState);
     async fn update(&self, state: WorkflowState);
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState>;
@@ -73,7 +79,6 @@ impl WorkflowDbTrait for InMemoryDB {
         db.insert(state.unique_id(), state);
     }
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState> {
-
         let db = self.workflows.lock().unwrap();
         db.values()
             .filter(|workflow| {
@@ -92,8 +97,25 @@ impl WorkflowDbTrait for InMemoryDB {
         Ok(())
     }
 
-    async fn get_signal(&self, signal_id: &String) -> Result<Option<Signal>, WorkflowErrorType> {
+    async fn get_signals(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+        signal_name: &str,
+        direction: SignalDirection,
+    ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
         let db = self.signals.lock().unwrap();
-        Ok(db.get(signal_id).cloned())
+        let res = db
+            .values()
+            .filter(|s| {
+                s.workflow_name == workflow_name
+                    && s.instance_id == instance_id
+                    && s.signal_name == signal_name
+                    && s.direction == direction
+            })
+            .cloned()
+            .collect();
+
+        Ok(Some(res))
     }
 }

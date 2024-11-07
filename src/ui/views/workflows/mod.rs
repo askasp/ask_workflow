@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::SystemTime};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::workflow_state::WorkflowState;
+use crate::{workflow_signal::SignalDirection, workflow_state::WorkflowState};
 
 pub struct WorkflowContext {
     pub workflows: Vec<WorkflowView>,
@@ -15,7 +15,6 @@ impl WorkflowContext {
         context.insert("names", &self.names);
     }
 }
-
 
 #[derive(Serialize, Deserialize)]
 pub struct WorkflowView {

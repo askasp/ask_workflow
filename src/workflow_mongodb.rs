@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::WorkflowErrorType;
-use crate::workflow_signal::Signal;
+use crate::workflow_signal::{Signal, SignalDirection};
 use crate::{
     db_trait::unique_workflow_id,
     workflow_state::{Open, WorkflowState, WorkflowStatus},
@@ -197,8 +197,14 @@ impl WorkflowDbTrait for MongoDB {
         Ok(())
     }
 
-    async fn get_signal(&self, signal_id: &String) -> Result<Option<Signal>, WorkflowErrorType> {
-        let query = doc! { "_id": signal_id };
+    async fn get_signals(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+        signal_name: &str,
+        direction: SignalDirection,
+    ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
+        let query = doc! { "workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
         let result =
             self.signals
                 .find_one(query)
@@ -212,6 +218,5 @@ impl WorkflowDbTrait for MongoDB {
 }
 
 fn bson_datetime_to_system_time(bson_date: BsonDateTime) -> SystemTime {
-        UNIX_EPOCH + Duration::from_millis(bson_date.timestamp_millis() as u64)
+    UNIX_EPOCH + Duration::from_millis(bson_date.timestamp_millis() as u64)
 }
-
