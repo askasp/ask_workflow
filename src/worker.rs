@@ -232,7 +232,7 @@ impl Worker {
                 });
             }
 
-            if let Ok(Some(signals)) = self
+            if let Ok(Some(mut signals)) = self
                 .db
                 .get_signals(
                     S::Workflow::static_name(),
@@ -246,8 +246,11 @@ impl Worker {
                     sleep(Duration::from_millis(200)).await;
                     continue;
                 }
-                let signal = signals[0].clone();
-                let data: S = serde_json::from_value(signal.data).map_err(|e| {
+                signals.sort_by_key(|signal| signal.timestamp);
+                let oldest_signal = signals[0].clone(); // The fir
+
+                self.db.set_signal_processed(oldest_signal.clone()).await?;
+                let data: S = serde_json::from_value(oldest_signal.data).map_err(|e| {
                     WorkflowErrorType::PermanentError {
                         message: "Failed to deserialize signal".to_string(),
                         content: None,

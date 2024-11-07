@@ -187,11 +187,10 @@ impl WorkflowDbTrait for MongoDB {
             "_id": signal.id
         };
 
-        let doc =
-            to_document(&signal_clone).map_err(|e| WorkflowErrorType::TransientError {
-                message: format!("Serialization failed: {}", e),
-                content: None,
-            })?;
+        let doc = to_document(&signal_clone).map_err(|e| WorkflowErrorType::TransientError {
+            message: format!("Serialization failed: {}", e),
+            content: None,
+        })?;
 
         self.signals.replace_one(query, doc).await.map_err(|e| {
             WorkflowErrorType::TransientError {
@@ -228,7 +227,7 @@ impl WorkflowDbTrait for MongoDB {
         signal_name: &str,
         direction: SignalDirection,
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
-        let query = doc! { "workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
+        let query = doc! { "processed": false, "workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
         let result =
             self.signals
                 .find_one(query)

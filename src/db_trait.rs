@@ -120,6 +120,7 @@ impl WorkflowDbTrait for InMemoryDB {
                     && s.instance_id == instance_id
                     && s.signal_name == signal_name
                     && s.direction == direction
+                    && !s.processed 
             })
             .cloned()
             .collect();
