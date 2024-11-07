@@ -25,7 +25,7 @@ pub struct MongoDB {
 }
 
 impl MongoDB {
-    pub fn new(db: Arc<Database>) -> Self {
+    pub fn new(db: Database) -> Self {
         Self {
             workflows: db.collection("workflows"),
             signals: db.collection("signals"),

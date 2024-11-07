@@ -270,6 +270,7 @@ impl Worker {
             let now = SystemTime::now();
 
             let due_workflows = self.db.query_due(now).await;
+
             for workflow_state in due_workflows {
                 if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
                     let db = Arc::clone(&self.db);
