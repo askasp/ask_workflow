@@ -34,6 +34,7 @@ pub struct WorkflowError {
 pub struct WorkflowState {
     pub workflow_type: String,
     pub instance_id: String,
+    pub run_id: String,
     pub results: HashMap<String, Value>, // Store activity results by activity name
     pub scheduled_at: SystemTime,
     pub status: WorkflowStatus,
@@ -62,6 +63,7 @@ impl WorkflowState {
             instance_id: instance_id.to_string(),
             results: HashMap::new(),
             scheduled_at,
+            run_id: cuid::cuid1().unwrap(),
             retries: 0,      // Start with 0 retries
             max_retries: 17, // Default max retries set to 17 for exponential backoff over 3 days
             output: None,
@@ -132,7 +134,7 @@ impl fmt::Display for WorkflowStatus {
             WorkflowStatus::Open(Open::Running) => "Running",
             WorkflowStatus::Closed(Closed::Completed) => "Completed",
             WorkflowStatus::Closed(Closed::Cancelled) => "Cancelled",
-            WorkflowStatus::Closed(Closed::Failed{error:x}) => &format!("Failed {:?}", x),
+            WorkflowStatus::Closed(Closed::Failed { error: x }) => &format!("Failed {:?}", x),
         };
         write!(f, "{}", status_str)
     }

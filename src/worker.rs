@@ -266,13 +266,10 @@ impl Worker {
     pub async fn run(self: Arc<Self>, interval_millis: u64) {
         let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
         loop {
-            println!("Worker running");
             interval.tick().await;
             let now = SystemTime::now();
 
             let due_workflows = self.db.query_due(now).await;
-            println!("Due workflows: {:?}", due_workflows.len());
-
             for workflow_state in due_workflows {
                 if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
                     let db = Arc::clone(&self.db);
