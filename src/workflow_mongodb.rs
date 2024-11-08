@@ -35,7 +35,7 @@ impl MongoDB {
     }
     fn serialize_workflow_state(state: &WorkflowState) -> Document {
         let mut doc = to_document(state).expect("Failed to serialize WorkflowState");
-        doc.insert("_id", Bson::String(state.unique_id()));
+        doc.insert("_id", Bson::String(state.run_id.clone()));
 
         // Convert SystemTime fields to BSON DateTime
         if let Some(scheduled_at) = state.scheduled_at.duration_since(UNIX_EPOCH).ok() {
@@ -121,21 +121,23 @@ impl WorkflowDbTrait for MongoDB {
         results
     }
 
-    async fn insert(&self, state: WorkflowState) {
+    async fn insert(&self, state: WorkflowState) -> String {
         let doc = Self::serialize_workflow_state(&state);
-        self.workflows
+        let res = self
+            .workflows
             .insert_one(doc)
             .await
             .expect("Failed to insert document");
+
+        res.inserted_id.to_string()
     }
 
     async fn get_workflow_state(
         &self,
-        workflow_name: &str,
-        instance_id: &str,
+        run_id: &str,
     ) -> Result<Option<WorkflowState>, &'static str> {
         let query = doc! {
-            "_id": unique_workflow_id(workflow_name, instance_id),
+            "_id": run_id,
         };
         let result = self
             .workflows

@@ -19,14 +19,13 @@ pub trait WorkflowDbTrait: Send + Sync {
         signal_name: &str,
         direction: SignalDirection,
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType>;
-    async fn insert(&self, state: WorkflowState);
+    async fn insert(&self, state: WorkflowState) -> String;
     async fn update(&self, state: WorkflowState);
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState>;
     async fn get_all(&self) -> Vec<WorkflowState>;
     async fn get_workflow_state(
         &self,
-        workflow_name: &str,
-        instance_id: &str,
+        run_id: &str,
     ) -> Result<Option<WorkflowState>, &'static str>;
 }
 
@@ -56,21 +55,20 @@ impl WorkflowDbTrait for InMemoryDB {
         db.values().cloned().collect()
     }
 
-    async fn insert(&self, state: WorkflowState) {
+    async fn insert(&self, state: WorkflowState) -> String{
         let mut db = self.workflows.lock().unwrap();
-
-        db.insert(state.unique_id(), state);
+        db.insert(state.run_id.clone(), state.clone());
+        state.run_id.clone()
     }
+
 
     async fn get_workflow_state(
         &self,
-        workflow_name: &str,
-        instance_id: &str,
+        run_id: &str,
     ) -> Result<Option<WorkflowState>, &'static str> {
-        println!("getting workflow {}_{}", workflow_name, instance_id);
         let workflows = self.workflows.lock().unwrap();
         Ok(workflows
-            .get(&unique_workflow_id(workflow_name, instance_id))
+            .get(run_id)
             .cloned())
     }
 

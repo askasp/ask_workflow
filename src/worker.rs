@@ -67,7 +67,7 @@ impl Worker {
         &self,
         instance_id: &str,
         input: Option<T>,
-    ) -> Result<(), &'static str>
+    ) -> Result<String, &'static str>
     where
         W: Workflow + Send + Sync + 'static,
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
@@ -83,7 +83,7 @@ impl Worker {
         instance_id: &str,
         scheduled_at: SystemTime,
         input: Option<T>,
-    ) -> Result<(), &'static str>
+    ) -> Result<String, &'static str>
     where
         W: Workflow + Send + Sync + 'static,
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
@@ -95,9 +95,9 @@ impl Worker {
                 scheduled_at,
                 input.map(|i| serde_json::to_value(i).unwrap()),
             );
-            self.db.insert(workflow_state.clone()).await;
+            let res = self.db.insert(workflow_state.clone()).await;
 
-            Ok(())
+            Ok(res)
         } else {
             Err("Workflow not found")
         }
@@ -132,7 +132,7 @@ impl Worker {
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
         // Schedule the workflow immediately
-        self.schedule_now::<W, T>(instance_id, input)
+        let res = self.schedule_now::<W, T>(instance_id, input)
             .await
             .map_err(|_| WorkflowErrorType::PermanentError {
                 message: "Cant schedule wf".to_string(),
@@ -143,7 +143,7 @@ impl Worker {
 
     pub async fn await_workflow<W>(
         &self,
-        instance_id: &str,
+        run_id: &str,
         timeout: Duration,
         interval_millis: u64,
     ) -> Result<WorkflowState, WorkflowErrorType>
@@ -152,10 +152,9 @@ impl Worker {
     {
         // Create a oneshot channel to send the result when found
         let (sender, receiver) = oneshot::channel();
-        let instance_id = instance_id.to_string();
+        let run_id = run_id.to_string();
         let db = self.db.clone();
 
-        let workflow_name = W::static_name().to_string();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
             let start = tokio::time::Instant::now();
@@ -172,7 +171,7 @@ impl Worker {
                     break;
                 }
                 if let Ok(Some(workflow_state)) =
-                    db.get_workflow_state(&workflow_name, &instance_id).await
+                    db.get_workflow_state( &run_id).await
                 {
                     match workflow_state.clone().status {
                         WorkflowStatus::Closed(Closed::Completed) => {
