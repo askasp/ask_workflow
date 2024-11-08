@@ -132,13 +132,15 @@ impl Worker {
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
         // Schedule the workflow immediately
-        let res = self.schedule_now::<W, T>(instance_id, input)
+        let res = self
+            .schedule_now::<W, T>(instance_id, input)
             .await
             .map_err(|_| WorkflowErrorType::PermanentError {
                 message: "Cant schedule wf".to_string(),
                 content: None,
             })?;
-        self.await_workflow::<W>(instance_id, timeout, 100).await
+
+        self.await_workflow::<W>(&res, timeout, 100).await
     }
 
     pub async fn await_workflow<W>(
@@ -170,9 +172,7 @@ impl Worker {
                     }));
                     break;
                 }
-                if let Ok(Some(workflow_state)) =
-                    db.get_workflow_state( &run_id).await
-                {
+                if let Ok(Some(workflow_state)) = db.get_workflow_state(&run_id).await {
                     match workflow_state.clone().status {
                         WorkflowStatus::Closed(Closed::Completed) => {
                             let _ = sender.send(Ok(workflow_state.clone()));
@@ -300,7 +300,6 @@ impl Worker {
     {
         // Check if the activity is already completed
         if let Some(result) = state.get_activity_result(name) {
-            println!("Using cached result for activity '{}'", name);
             let cached_result: T = serde_json::from_value(result.clone()).unwrap();
             return Ok(cached_result);
         }
@@ -308,7 +307,6 @@ impl Worker {
         // Run the function and await its result
         match func().await {
             Ok(result) => {
-                println!("Caching result for activity '{}'", name);
                 state.add_activity_result(name, &result);
                 self.db.update(state.clone()).await;
                 Ok(result)

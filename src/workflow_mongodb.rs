@@ -15,7 +15,6 @@ use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::WorkflowErrorType;
 use crate::workflow_signal::{Signal, SignalDirection};
 use crate::{
-    db_trait::unique_workflow_id,
     workflow_state::{Open, WorkflowState, WorkflowStatus},
 };
 
@@ -151,7 +150,8 @@ impl WorkflowDbTrait for MongoDB {
 
     async fn update(&self, state: WorkflowState) {
         let query = doc! {
-            "_id": state.unique_id(),
+            "_id": state.run_id.clone(),
+
         };
         let update = Self::serialize_workflow_state(&state);
 

@@ -1,4 +1,4 @@
-use crate::db_trait::{unique_workflow_id, WorkflowDbTrait};
+use crate::db_trait::{ WorkflowDbTrait};
 use crate::worker::Worker;
 use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{self, Closed, WorkflowError, WorkflowState, WorkflowStatus};
@@ -18,16 +18,16 @@ pub trait Workflow: Send + Sync {
     where
         Self: Sized;
 
-    fn unique_id(&self) -> String
-where {
-        format!("{}-{}", self.name(), self.state().instance_id)
-    }
-    fn create_unique_id(instance_id: &str) -> String
-    where
-        Self: Sized,
-    {
-        format!("{}-{}", Self::static_name(), instance_id)
-    }
+    // fn unique_id(&self) -> String
+// where {
+        // format!("{}-{}", self.name(), self.state().instance_id)
+    // }
+    // fn create_unique_id(instance_id: &str) -> String
+    // where
+        // Self: Sized,
+    // {
+        // format!("{}-{}", Self::static_name(), instance_id)
+    // }
 
     fn claim_duration(&self) -> Duration {
         Duration::from_secs(30)
@@ -60,7 +60,6 @@ where {
                 state.mark_completed();
                 state.output = Some(serde_json::to_value(output).unwrap_or_default());
                 db.update(state.clone()).await;
-                eprintln!("Workflow successfully completed {}", self.unique_id());
                 Ok(())
             }
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
@@ -101,7 +100,7 @@ where
 {
     // Check if the activity is already completed
     if let Some(result) = state.get_activity_result(name) {
-        println!("Using cached result for activity '{}'", name);
+        tracing::debug!("Using cached result for activity '{}'", name);
         let cached_result: T = serde_json::from_value(result.clone()).unwrap();
         return Ok(cached_result);
     }
@@ -109,7 +108,7 @@ where
     // Run the function and await its result
     match func().await {
         Ok(result) => {
-            println!("Caching result for activity '{}'", name);
+            tracing::debug!("Caching result for activity '{}'", name);
             state.add_activity_result(name, &result);
             worker.db.update(state.clone()).await;
             Ok(result)

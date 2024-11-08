@@ -257,7 +257,7 @@ impl WorkflowSignal for VerificationCodeSignal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ask_workflow::db_trait::{unique_workflow_id, InMemoryDB};
+    use ask_workflow::db_trait::{ InMemoryDB};
     use ask_workflow::worker::Worker;
     // Adjust as necessary
     use ask_workflow::workflow_state::{Closed, WorkflowState, WorkflowStatus};
@@ -295,9 +295,9 @@ mod tests {
             name: "Aksel".to_string(),
         };
 
-        let _ = worker
+        let run_id = worker
             .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", Some(user_input))
-            .await;
+            .await.unwrap();
 
         let unverified_user: NonVerifiedUserOut = worker
             .await_signal::<NonVerifiedUserOut>("Aksel", Duration::from_secs(10))
@@ -318,7 +318,7 @@ mod tests {
         println!("Signal sent, waiting for user verified");
 
         let state = worker
-            .await_workflow::<CreateUserWorkflow>("Aksel", Duration::from_secs(10), 100)
+            .await_workflow::<CreateUserWorkflow>(&run_id, Duration::from_secs(10), 100)
             .await
             .unwrap();
 

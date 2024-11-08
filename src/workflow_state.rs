@@ -48,9 +48,9 @@ pub struct WorkflowState {
 }
 
 impl WorkflowState {
-    pub fn unique_id(&self) -> String {
-        format!("{}-{}", self.workflow_type, self.instance_id)
-    }
+    // pub fn unique_id(&self) -> String {
+        // format!("{}-{}", self.workflow_type, self.instance_id)
+    // }
 
     pub fn new(
         workflow_type: &str,

@@ -24,14 +24,14 @@ pub trait WorkflowDbTrait: Send + Sync {
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState>;
     async fn get_all(&self) -> Vec<WorkflowState>;
     async fn get_workflow_state(
-        &self,
+       &self,
         run_id: &str,
     ) -> Result<Option<WorkflowState>, &'static str>;
 }
 
-pub fn unique_workflow_id(workflow_name: &str, instance_id: &str) -> String {
-    format!("{}-{}", workflow_name, instance_id)
-}
+// pub fn unique_workflow_id(workflow_name: &str, instance_id: &str) -> String {
+//     format!("{}-{}", workflow_name, instance_id)
+// }
 
 // In-memory database implementation using a HashMap
 pub struct InMemoryDB {
@@ -74,8 +74,7 @@ impl WorkflowDbTrait for InMemoryDB {
 
     async fn update(&self, state: WorkflowState) {
         let mut db = self.workflows.lock().unwrap();
-        println!("updating workflow writing state {:?}", state);
-        db.insert(state.unique_id(), state);
+        db.insert(state.run_id.clone(), state.clone());
     }
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState> {
         let db = self.workflows.lock().unwrap();
