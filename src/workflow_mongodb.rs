@@ -229,7 +229,7 @@ impl WorkflowDbTrait for MongoDB {
         direction: SignalDirection,
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
         let query = doc! { "processed": false, "workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
-        println!("Query: {:?}", query);
+        tracing::debug!("Query: {:?}", query);
         let cursor =
             self.signals
                 .find(query)
