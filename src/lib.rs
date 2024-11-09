@@ -1,6 +1,10 @@
 #![feature(associated_type_defaults)]
 use std::sync::Arc;
 pub mod typed_version;
+mod macros;
+
+// Re-export the macros to make them available to users of the crate
+pub use macros::*;
 
 use axum::{
     extract::State,

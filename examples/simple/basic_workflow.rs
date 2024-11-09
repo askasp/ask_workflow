@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use ask_workflow::{
-    db_trait::WorkflowDbTrait,
-    worker::Worker,
-    workflow::{Workflow, WorkflowErrorType},
-    workflow_state::WorkflowState,
+    db_trait::WorkflowDbTrait, run_activity_m, run_sync_activity_m, worker::Worker, workflow::{Workflow, WorkflowErrorType}, workflow_state::WorkflowState
 };
 use axum::async_trait;
 use serde::Deserialize;
@@ -115,8 +112,20 @@ impl Workflow for BasicWorkflow {
             })
             .await?;
 
+        run_sync_activity_m!(worker, "Simple_Macro", state,  [], { generate_number() })?;
+        let a = run_activity_m!(worker, "Simple_Async_Macro", state,  [], { generate_number_async().await });
+        println!("a: {:?}", a);
+
         Ok(None)
     }
+}
+
+pub fn generate_number() -> Result<String, WorkflowErrorType> {
+    Ok("hei".to_string())
+}
+pub async fn generate_number_async() -> Result<String, WorkflowErrorType> {
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    Ok("async a".to_string())
 }
 
 pub struct BasicWorkflowContext {

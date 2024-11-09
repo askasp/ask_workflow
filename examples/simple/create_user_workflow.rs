@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
     db_trait::WorkflowDbTrait,
+    run_activity_m, run_sync_activity_m,
     workflow::{run_activity, run_sync_activity, Workflow, WorkflowErrorType},
     workflow_signal::{SignalDirection, WorkflowSignal},
     workflow_state::WorkflowState,
@@ -100,22 +101,31 @@ impl Workflow for CreateUserWorkflow {
 
         // Activity 1: Create user
         println!("Running create user activity");
-        let user = worker
-            .run_activity("CreateUserActivity", self.state_mut(), || {
-                let ctx_clone = ctx_clone.clone();
+        // let user = worker
+        //     .run_activity("CreateUserActivity", self.state_mut(), || {
+        //         let ctx_clone = ctx_clone.clone();
 
-                async move { create_user(ctx_clone, &input).await }
-            })
-            .await?;
+        //         async move { create_user(ctx_clone, &input).await }
+        //     })
+        //     .await?;
+        let user = run_activity_m!(
+            worker,
+            "CreateUserActivity",
+            self.state_mut(),
+            [ctx_clone],
+            { create_user(ctx_clone, &input).await }
+        )?;
 
         println!("User creation done");
 
         // Sync Activity: Generate verification code
-        let generated_code = worker
-            .run_sync_activity("GenerateVerificationCodeActivity", self.state_mut(), || {
-                Ok(generate_verification_code())
-            })
-            .await?;
+        let generated_code = run_sync_activity_m!(
+            worker,
+            "GenerateVerificationCodeActivity",
+            self.state_mut(),
+            [],
+            { Ok(generate_verification_code()) }
+        )?;
 
         // Send signal with the created user data
         worker
@@ -257,7 +267,7 @@ impl WorkflowSignal for VerificationCodeSignal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ask_workflow::db_trait::{ InMemoryDB};
+    use ask_workflow::db_trait::InMemoryDB;
     use ask_workflow::worker::Worker;
     // Adjust as necessary
     use ask_workflow::workflow_state::{Closed, WorkflowState, WorkflowStatus};
@@ -297,7 +307,8 @@ mod tests {
 
         let run_id = worker
             .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", Some(user_input))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let unverified_user: NonVerifiedUserOut = worker
             .await_signal::<NonVerifiedUserOut>("Aksel", Duration::from_secs(10))
