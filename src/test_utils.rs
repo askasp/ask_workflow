@@ -28,7 +28,7 @@ pub fn setup_workflow_state(
     )
 }
 
-pub async fn initialize_and_start_test_worker<W>(workflow: Box<W>) -> (Arc<Worker>, JoinHandle<()>)
+pub async fn initialize_and_start_test_worker<W>(workflow: W) -> (Arc<Worker>, JoinHandle<()>)
 where
     W: Workflow + 'static,
 {

@@ -233,9 +233,9 @@ mod tests {
 
         println!("adding workflow");
 
-        worker.add_workflow::<CreateUserWorkflow>(Box::new(CreateUserWorkflow {
+        worker.add_workflow::<CreateUserWorkflow>(CreateUserWorkflow {
             context: create_user_context.clone(),
-        }));
+        });
 
         let worker = Arc::new(worker);
         let worker_clone = worker.clone();

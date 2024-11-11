@@ -40,10 +40,10 @@ impl Worker {
     // }
     //
 
-    pub fn add_workflow<W: Workflow + 'static>(&mut self, workflow_instance: Box<W>) {
+    pub fn add_workflow<W: Workflow + 'static>(&mut self, workflow_instance: W) {
         let workflow_name = W::static_name().to_string();
         self.workflows
-            .insert(workflow_name, Arc::new(workflow_instance));
+            .insert(workflow_name, Arc::new(Box::new(workflow_instance)));
     }
 
     // Schedule a workflow to run immediately

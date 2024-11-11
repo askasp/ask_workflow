@@ -35,9 +35,9 @@ async fn main() {
         http_client: reqwest::Client::new(),
     });
 
-    worker.add_workflow::<BasicWorkflow>(Box::new(BasicWorkflow {
+    worker.add_workflow::<BasicWorkflow>(BasicWorkflow {
         context: context.clone(),
-    }));
+    });
 
     let mock_db = Arc::new(MockDatabase::new());
     let mock_db_clone = mock_db.clone();
@@ -46,9 +46,9 @@ async fn main() {
         db: mock_db_clone.clone(),
     });
 
-    worker.add_workflow::<CreateUserWorkflow>(Box::new(CreateUserWorkflow {
+    worker.add_workflow::<CreateUserWorkflow>(CreateUserWorkflow {
         context: create_user_context.clone(),
-    }));
+    });
 
     println!("adding workflow");
 
