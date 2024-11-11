@@ -28,26 +28,15 @@ pub fn setup_workflow_state(
     )
 }
 
-pub async fn initialize_and_start_test_worker<W, F>(
-    workflow_factory: F,
-) -> (Arc<Worker>, JoinHandle<()>)
+pub async fn initialize_and_start_test_worker<W>(workflow: Box<W>) -> (Arc<Worker>, JoinHandle<()>)
 where
     W: Workflow + 'static,
-    F: Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
 {
-    // Initialize the in-memory mock database
     let db: Arc<dyn WorkflowDbTrait> = Arc::new(InMemoryDB::new());
-
-    // Create the worker
     let mut worker = Worker::new(db.clone());
-
-    // Add the specified workflow to the worker
-    worker.add_workflow::<W, _>(workflow_factory);
-
-    // Wrap the worker in an Arc and start it in a background task
+    worker.add_workflow::<W>(workflow);
     let worker = Arc::new(worker);
     let worker_clone = worker.clone();
-
     let worker_handle = tokio::spawn(async move {
         worker_clone.run(500).await;
     });

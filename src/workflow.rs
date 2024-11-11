@@ -23,13 +23,13 @@ pub trait Workflow: Send + Sync {
     }
 
     async fn run(
-        &mut self,
+        &self,
         worker: Arc<Worker>,
         workflow_state: &mut WorkflowState,
     ) -> Result<Option<Value>, WorkflowErrorType>;
 
     async fn execute(
-        &mut self,
+        &self,
         db: Arc<dyn WorkflowDbTrait>,
         worker: Arc<Worker>,
         workflow_state: &mut WorkflowState,

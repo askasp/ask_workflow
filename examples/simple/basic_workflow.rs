@@ -31,7 +31,7 @@ impl Workflow for BasicWorkflow {
 
 
     async fn run(
-        &mut self,
+        &self,
         _worker: Arc<Worker>,
         mut state: &mut WorkflowState,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {

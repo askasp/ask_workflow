@@ -30,15 +30,15 @@ async fn main() {
         Arc::new(MongoDB::new(database.clone()));
 
     let mut worker = Worker::new(db.clone());
-    worker.add_workflow::<BasicWorkflow, _>(|| {
-        let context = Arc::new(BasicWorkflowContext {
-            http_client: reqwest::Client::new(),
-        });
 
-        return Box::new(BasicWorkflow {
-            context: context.clone(),
-        });
+    let context = Arc::new(BasicWorkflowContext {
+        http_client: reqwest::Client::new(),
     });
+
+    worker.add_workflow::<BasicWorkflow>(Box::new(BasicWorkflow {
+        context: context.clone(),
+    }));
+
     let mock_db = Arc::new(MockDatabase::new());
     let mock_db_clone = mock_db.clone();
     let create_user_context = Arc::new(CreateUserWorkflowContext {
@@ -46,11 +46,9 @@ async fn main() {
         db: mock_db_clone.clone(),
     });
 
-    worker.add_workflow::<CreateUserWorkflow, _>(move || {
-        return Box::new(CreateUserWorkflow {
-            context: create_user_context.clone(),
-        });
-    });
+    worker.add_workflow::<CreateUserWorkflow>(Box::new(CreateUserWorkflow {
+        context: create_user_context.clone(),
+    }));
 
     println!("adding workflow");
 

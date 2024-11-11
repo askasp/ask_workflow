@@ -14,7 +14,8 @@ use std::time::{Duration, SystemTime};
 
 pub struct Worker {
     pub db: Arc<dyn WorkflowDbTrait>,
-    pub workflows: HashMap<String, Box<dyn Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
+    // pub workflows: HashMap<String, Box<dyn Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
+    pub workflows: HashMap<String, Arc<Box<dyn Workflow + Send + Sync>>>,
 }
 
 impl Worker {
@@ -29,14 +30,22 @@ impl Worker {
         self.workflows.keys().cloned().collect()
     }
 
-    pub fn add_workflow<W, F>(&mut self, factory: F)
-    where
-        W: Workflow + 'static,
-        F: Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
-    {
+    // pub fn add_workflow<W, F>(&mut self, factory: F)
+    // where
+    //     W: Workflow + 'static,
+    //     F: Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
+    // {
+    //     let workflow_name = W::static_name().to_string();
+    //     self.workflows.insert(workflow_name, Box::new(factory));
+    // }
+    //
+
+    pub fn add_workflow<W: Workflow + 'static>(&mut self, workflow_instance: Box<W>) {
         let workflow_name = W::static_name().to_string();
-        self.workflows.insert(workflow_name, Box::new(factory));
+        self.workflows
+            .insert(workflow_name, Arc::new(workflow_instance));
     }
+
     // Schedule a workflow to run immediately
 
     pub fn workflow_names(&self) -> Vec<String> {
@@ -279,15 +288,17 @@ impl Worker {
 
             let due_workflows = self.db.query_due(now).await;
 
-            for mut workflow_state in due_workflows {
-                if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
-                    let db = Arc::clone(&self.db);
+            for workflow_state in due_workflows {
+                let db = Arc::clone(&self.db);
+                let me = self.clone();
 
-                    let mut workflow = workflow_factory();
-                    let me = self.clone();
+                if let Some(workflow) = self.workflows.get(&workflow_state.workflow_type).cloned() {
+                    let mut workflow_instance = workflow_state.clone(); // Clone to get an owned mutable instance
 
                     tokio::spawn(async move {
-                        let res = workflow.execute(db, me.clone(), &mut workflow_state).await;
+                        let res = workflow
+                            .execute(db, me.clone(), &mut workflow_instance)
+                            .await;
                         if !res.is_ok() {
                             eprintln!("Error executing workflow: {:?}", res);
                         }

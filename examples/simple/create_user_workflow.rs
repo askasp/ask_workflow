@@ -56,7 +56,7 @@ impl Workflow for CreateUserWorkflow {
         "CreateUserWorkflow"
     }
     async fn run(
-        &mut self,
+        &self,
         worker: Arc<ask_workflow::worker::Worker>,
         mut state: &mut WorkflowState,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
@@ -76,8 +76,9 @@ impl Workflow for CreateUserWorkflow {
 
         println!("User creation done");
 
-        let generated_code =
-            run_activity_m!(state, "generte_code", "sync", [], { Ok(generate_verification_code()) })?;
+        let generated_code = run_activity_m!(state, "generte_code", "sync", [], {
+            Ok(generate_verification_code())
+        })?;
         worker
             .send_signal(
                 &instance_id,
@@ -108,7 +109,9 @@ impl Workflow for CreateUserWorkflow {
         }
 
         println!("Sending email");
-        run_activity_m!(state, "send_email", [ctx_clone], { send_email(ctx_clone).await })?;
+        run_activity_m!(state, "send_email", [ctx_clone], {
+            send_email(ctx_clone).await
+        })?;
 
         println!("Sending Slack notification");
         run_activity_m!(state, "send_to_slack", [ctx_clone], {
@@ -230,11 +233,9 @@ mod tests {
 
         println!("adding workflow");
 
-        worker.add_workflow::<CreateUserWorkflow, _>(move || {
-            return Box::new(CreateUserWorkflow {
-                context: create_user_context.clone(),
-            });
-        });
+        worker.add_workflow::<CreateUserWorkflow>(Box::new(CreateUserWorkflow {
+            context: create_user_context.clone(),
+        }));
 
         let worker = Arc::new(worker);
         let worker_clone = worker.clone();
