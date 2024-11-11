@@ -14,7 +14,6 @@ use worker::Worker;
 
 pub mod activity;
 pub mod db_trait;
-#[cfg(test)]
 pub mod test_utils;
 pub mod ui;
 pub mod worker;
