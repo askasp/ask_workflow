@@ -25,9 +25,9 @@ pub fn setup_workflow_state(workflow_type: &str, instance_id: &str, input: Optio
 
 #[cfg(test)]
 /// Helper function to check if a workflow completed successfully.
-pub fn assert_workflow_completed(workflow: &dyn Workflow) {
-    assert_eq!(workflow.state().status.to_string(), "Completed");
-}
+// pub fn assert_workflow_completed(workflow: &dyn Workflow) {
+//     assert_eq!(workflow.state().status.to_string(), "Completed");
+// }
 
 ///
 /// - `workflow_factory`: The workflow factory function to add to the worker.
@@ -36,7 +36,7 @@ pub async fn initialize_and_start_test_worker<W, F>(
 ) -> (Arc<Worker>, JoinHandle<()>)
 where
     W: Workflow + 'static,
-    F: Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
+    F: Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
 {
     // Initialize the in-memory mock database
     let db: Arc<dyn WorkflowDbTrait> = Arc::new(InMemoryDB::new());

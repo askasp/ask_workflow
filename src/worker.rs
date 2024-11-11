@@ -1,5 +1,3 @@
-use cuid::cuid1;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -7,24 +5,16 @@ use tokio::time::sleep;
 
 use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::{Workflow, WorkflowErrorType};
-use crate::workflow_signal::{Signal, SignalDirection, WorkflowSignal};
+use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{Closed, WorkflowError, WorkflowState, WorkflowStatus};
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use std::any::TypeId;
-
 pub struct Worker {
     pub db: Arc<dyn WorkflowDbTrait>,
-
-    // pub workflows: HashMap<TypeId, Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
-    pub workflows: HashMap<
-        String,
-        Box<dyn Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync>,
-    >,
+    pub workflows: HashMap<String, Box<dyn Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
 }
 
 impl Worker {
@@ -42,7 +32,7 @@ impl Worker {
     pub fn add_workflow<W, F>(&mut self, factory: F)
     where
         W: Workflow + 'static,
-        F: Fn(WorkflowState) -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
+        F: Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
     {
         let workflow_name = W::static_name().to_string();
         self.workflows.insert(workflow_name, Box::new(factory));
@@ -201,16 +191,19 @@ impl Worker {
         &self,
         instance_id: &str,
         signal: S,
+        run_id: Option<String>,
     ) -> Result<(), WorkflowErrorType> {
         let signal_data = Signal {
+            sent_at: SystemTime::now(),
             id: cuid::cuid1().unwrap(),
             instance_id: instance_id.to_string(),
             signal_name: S::static_signal_name().to_string(),
             processed: false,
             direction: S::direction(),
             workflow_name: S::Workflow::static_name().to_string(),
-            timestamp: SystemTime::now(),
             data: serde_json::to_value(&signal).unwrap(),
+            processed_at: None,
+            target_or_source_run_id: run_id,
         };
         self.db.insert_signal(signal_data).await
     }
@@ -219,6 +212,7 @@ impl Worker {
     pub async fn await_signal<S: WorkflowSignal>(
         &self,
         instance_id: &str,
+        run_id: Option<String>,
         timeout: Duration,
     ) -> Result<S, WorkflowErrorType> {
         let start = tokio::time::Instant::now();
@@ -245,11 +239,26 @@ impl Worker {
                     sleep(Duration::from_millis(200)).await;
                     continue;
                 }
-                signals.sort_by_key(|signal| signal.timestamp);
-                let oldest_signal = signals[0].clone(); // The fir
 
-                self.db.set_signal_processed(oldest_signal.clone()).await?;
-                let data: S = serde_json::from_value(oldest_signal.data).map_err(|e| {
+                signals.sort_by_key(|signal| signal.sent_at);
+
+                // Apply `run_id` to all signals if it exists
+                if let Some(run_id) = run_id {
+                    for signal in signals.iter_mut() {
+                        signal.target_or_source_run_id = Some(run_id.clone());
+                    }
+                }
+                // Mark all signals as processed
+                for signal in signals.iter_mut() {
+                    signal.processed = true;
+                    signal.processed_at = Some(SystemTime::now());
+                    self.db.update_signal(signal.clone()).await?;
+                }
+
+                // Reassign `newest_signal` after it has been modified in place
+                let newest_signal = signals.last().cloned().expect("signals list is not empty");
+
+                let data: S = serde_json::from_value(newest_signal.data).map_err(|_e| {
                     WorkflowErrorType::PermanentError {
                         message: "Failed to deserialize signal".to_string(),
                         content: None,
@@ -270,15 +279,15 @@ impl Worker {
 
             let due_workflows = self.db.query_due(now).await;
 
-            for workflow_state in due_workflows {
+            for mut workflow_state in due_workflows {
                 if let Some(workflow_factory) = self.workflows.get(&workflow_state.workflow_type) {
                     let db = Arc::clone(&self.db);
 
-                    let mut workflow = workflow_factory(workflow_state.clone());
+                    let mut workflow = workflow_factory();
                     let me = self.clone();
 
                     tokio::spawn(async move {
-                        let res = workflow.execute(db, me.clone()).await;
+                        let res = workflow.execute(db, me.clone(), &mut workflow_state).await;
                         if !res.is_ok() {
                             eprintln!("Error executing workflow: {:?}", res);
                         }

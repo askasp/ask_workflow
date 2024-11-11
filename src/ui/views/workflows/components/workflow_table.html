@@ -1,49 +1,93 @@
 <div class="relative overflow-x-auto shadow-none  sm:rounded-lg border w-full">
-            <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400 ">
-               <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                  <tr>
-                     <th scope="col" class="px-6 py-3">Name</th>
-                     <th scope="col" class="px-6 py-3">Status</th>
-                     <th scope="col" class="px-6 py-3">Start Time</th>
-                     <th scope="col" class="px-6 py-3">End Time</th>
-                     <th scope="col" class="px-6 py-3">Action</th>
-                  </tr>
-               </thead>
-               <tbody>
-                  {% for workflow in workflows %}
-                  <tr class="bg-white {% if loop.index != workflows | length %}border-b dark:border-gray-700{% endif %} dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-600" data-accordion="collapse">
-                     <td class="px-6 py-4">
-                        <div class="font-semibold text-gray-900 dark:text-white">
-                           {{ workflow.name }}
-                        </div>
-                        <div class="text-xs">
-                           {{ workflow.id }}
-                        </div>
-                     </td>
-                     <td class="px-6 py-4">{{ workflow.status }}</td>
-                     <td class="px-6 py-4">{{ workflow.start_time}}  </td>
-                     <td class="px-6 py-4">{{ workflow.end_time}}  </td>
-                     <td class="px-6 py-4">
-                        <button type="button" data-accordion-target="#workflow-{{ loop.index }}" aria-expanded="false" aria-controls="workflow-{{ loop.index }}" class="text-blue-600 dark:text-blue-500 hover:underline">
-                        View Activities
-                        </button>
-                     </td>
-                  </tr>
-                  <!-- Collapsible Activities Content -->
-                  <tr id="workflow-{{ loop.index }}" class="hidden">
-                     <td colspan="5" class="p-4 bg-gray-50 dark:bg-gray-900">
-                        <div class="text-gray-500 dark:text-gray-400">
-                           <p class="font-semibold mb-2">Activities:</p>
-                           {% for activity, output in workflow.results %}
-                           <div class="mb-2">
-                              <p class="font-medium">{{ activity }}:</p>
-                              <pre class="text-xs bg-gray-200 p-2 rounded">{{ output | safe }}</pre>
-                           </div>
-                           {% endfor %}
-                        </div>
-                     </td>
-                  </tr>
-                  {% endfor %}
-               </tbody>
-            </table>
-         </div>
+  <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400 ">
+    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+      <tr>
+        <th scope="col" class="px-6 py-3">Name</th>
+        <th scope="col" class="px-6 py-3">Status</th>
+        <th scope="col" class="px-6 py-3">Start Time</th>
+        <th scope="col" class="px-6 py-3">End Time</th>
+        <th scope="col" class="px-6 py-3">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for workflow in workflows %}
+      <tr
+        class="bg-white {% if loop.index != workflows | length %}border-b dark:border-gray-700{% endif %} dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-600"
+        data-accordion="collapse">
+        <td class="px-6 py-4">
+          <div class="font-semibold text-gray-900 dark:text-white">
+            {{ workflow.name }}
+          </div>
+          <div class="text-xs">
+            {{ workflow.instance_id }}
+          </div>
+          <div class="text-xs">
+            {{ workflow.run_id }}
+        </td>
+        <td class="px-6 py-4">{{ workflow.status }}</td>
+        <td class="px-6 py-4">{{ workflow.start_time}} </td>
+        <td class="px-6 py-4">{{ workflow.end_time}} </td>
+        <td class="px-6 py-4">
+          <button type="button" data-accordion-target="#workflow-{{ loop.index }}" aria-expanded="false"
+            aria-controls="workflow-{{ loop.index }}" class="text-blue-600 dark:text-blue-500 hover:underline">
+            View Actions
+          </button>
+        </td>
+      </tr>
+      <tr id="workflow-{{ loop.index }}" class="hidden">
+        <td colspan="5" class="p-4 bg-gray-50 dark:bg-gray-900">
+          <div class="text-gray-500 dark:text-gray-400">
+            <p class="font-semibold mb-2">Actions:</p>
+
+            {% for action in workflow.actions %}
+            {% if action.Activity is defined %}
+            <!-- Activity -->
+            <div class="mb-2">
+              <p class="font-medium">Activity: {{ action.Activity.name }}</p>
+              <pre class="text-xs bg-gray-200 p-2 rounded">{{ action.Activity.data | safe }}</pre>
+              <p class="text-xs text-gray-400">Timestamp: {{ action.Activity.timestamp }}</p>
+            </div>
+            {% elif action.ReceivedSignal is defined %}
+            <!-- Incoming Signal -->
+            <div class="mb-2">
+              <p class="font-medium">Incoming Signal: {{ action.ReceivedSignal.signal_name }}</p>
+              <p class="text-xs">Payload:</p>
+              <pre class="text-xs bg-gray-200 p-2 rounded">{{ action.ReceivedSignal.payload | safe }}</pre>
+              <p class="text-xs text-gray-400">Sent At: {{ action.ReceivedSignal.sent_at }}</p>
+              {% if action.ReceivedSignal.processed_at is defined %}
+              <p class="text-xs text-gray-400">Processed At: {{ action.ReceivedSignal.processed_at }}</p>
+              {% else %}
+              <p class="text-xs text-red-500">Unprocessed</p>
+              {% endif %}
+            </div>
+            {% elif action.SentSignal is defined %}
+            <!-- Outgoing Signal -->
+            <div class="mb-2">
+              <p class="font-medium">Outgoing Signal: {{ action.SentSignal.signal_name }}</p>
+              <p class="text-xs">Payload:</p>
+              <pre class="text-xs bg-gray-200 p-2 rounded">{{ action.SentSignal.payload | safe }}</pre>
+              <p class="text-xs text-gray-400">Sent At: {{ action.SentSignal.sent_at }}</p>
+              {% if action.SentSignal.processed_at is defined %}
+              <p class="text-xs text-gray-400">Processed At: {{ action.SentSignal.processed_at }}</p>
+              {% else %}
+              <p class="text-xs text-red-500">Unprocessed</p>
+              {% endif %}
+            </div>
+            {% elif action.Error is defined %}
+            <!-- Error -->
+            <div class="mb-2">
+              <p class="font-medium text-red-500">Error:</p>
+              <pre class="text-xs bg-red-200 p-2 rounded">{{ action.Error.error_type.message | safe }}</pre>
+              <p class="text-xs text-gray-400">Timestamp: {{ action.Error.timestamp }}</p>
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </td>
+      </tr>
+
+
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

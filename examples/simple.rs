@@ -1,15 +1,15 @@
-use ask_workflow::db_trait::InMemoryDB;
 use ask_workflow::start_axum_server;
 use ask_workflow::worker::Worker;
-use ask_workflow::workflow::{Workflow, WorkflowErrorType};
 use ask_workflow::workflow_mongodb::MongoDB;
 use mongodb::Client;
 use reqwest;
-use simple::create_user_workflow::{CreateUserWorkflow, CreateUserWorkflowContext};
+use simple::create_user_workflow::{
+    CreateUserInput, CreateUserWorkflow, CreateUserWorkflowContext, NonVerifiedUserOut,
+    VerificationCodeSignal,
+};
 use simple::mock_db::MockDatabase;
 use std::sync::Arc;
-use std::time::SystemTime;
-use tokio::time::Duration;
+use std::time::Duration;
 
 mod simple {
     pub mod basic_workflow;
@@ -21,7 +21,8 @@ use simple::basic_workflow::{BasicWorkflow, BasicWorkflowContext};
 
 #[tokio::main]
 async fn main() {
-    let uri = std::env::var("asdadMONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017/".into());
+    let uri =
+        std::env::var("asdadMONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017/".into());
     let client = Client::with_uri_str(&uri).await.unwrap();
     let database = client.database("ask_workflow");
 
@@ -29,13 +30,12 @@ async fn main() {
         Arc::new(MongoDB::new(database.clone()));
 
     let mut worker = Worker::new(db.clone());
-    worker.add_workflow::<BasicWorkflow, _>(|state| {
+    worker.add_workflow::<BasicWorkflow, _>(|| {
         let context = Arc::new(BasicWorkflowContext {
             http_client: reqwest::Client::new(),
         });
 
         return Box::new(BasicWorkflow {
-            state,
             context: context.clone(),
         });
     });
@@ -46,9 +46,8 @@ async fn main() {
         db: mock_db_clone.clone(),
     });
 
-    worker.add_workflow::<CreateUserWorkflow, _>(move |state| {
+    worker.add_workflow::<CreateUserWorkflow, _>(move || {
         return Box::new(CreateUserWorkflow {
-            state,
             context: create_user_context.clone(),
         });
     });
@@ -56,25 +55,50 @@ async fn main() {
     println!("adding workflow");
 
     let _ = worker
-        .schedule_now::<BasicWorkflow, ()>(
-            &cuid::cuid1().unwrap(),
-            None,
-        )
-        .await.unwrap();
+        .schedule_now::<BasicWorkflow, ()>(&cuid::cuid1().unwrap(), None)
+        .await
+        .unwrap();
 
     let worker = Arc::new(worker);
     let worker_clone = worker.clone();
+    let worker_clone_2 = worker.clone();
 
     // Start the worker in its own background thread
     let worker_handle = tokio::spawn(async move {
-        worker_clone.run(100).await;
+        worker_clone.clone().run(100).await;
     });
 
-    // Keep the main thread alive (or start other tasks like a web server here)
+    let axum_handle = tokio::spawn(async move {
+        start_axum_server(worker_clone_2.clone(), 3008).await;
+    });
+
     println!("Worker running in the background. Press Ctrl+C to exit.");
 
-    start_axum_server(worker.clone(), 3008).await;
+    let user_input = CreateUserInput {
+        name: "Aksel".to_string(),
+    };
 
-    // Optionally, join the worker thread when exiting
+    println!("scheduling craete user");
+    let run_id = worker
+        .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", Some(user_input))
+        .await
+        .unwrap();
+
+    let await_signal =
+        worker.await_signal::<NonVerifiedUserOut>("Aksel", None, Duration::from_secs(10));
+    let unverified_user: NonVerifiedUserOut = await_signal.await.unwrap();
+    println!("Unverified user: {:?}", unverified_user);
+
+    worker
+        .send_signal(
+            "Aksel",
+            VerificationCodeSignal {
+                code: "123".to_string(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+
     worker_handle.await.unwrap();
 }

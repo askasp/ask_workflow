@@ -1,15 +1,11 @@
 #![feature(associated_type_defaults)]
 use std::sync::Arc;
-pub mod typed_version;
 mod macros;
 
 // Re-export the macros to make them available to users of the crate
 pub use macros::*;
 
 use axum::{
-    extract::State,
-    http::StatusCode,
-    response::{Html, IntoResponse},
     Extension, Router,
 };
 use db_trait::{InMemoryDB, WorkflowDbTrait};
@@ -60,7 +56,6 @@ pub async fn start_axum_server(worker: Arc<worker::Worker>, port: u16) {
 pub fn init_test_worker_with_workflow() -> Worker {
     // Initialize the in-memory mock database
     let db: Arc<dyn WorkflowDbTrait> = Arc::new(InMemoryDB::new());
-
     // Create the worker
     Worker::new(db.clone())
 }

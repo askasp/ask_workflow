@@ -1,8 +1,7 @@
 use crate::workflow::WorkflowErrorType;
 use crate::workflow_signal::{Signal, SignalDirection};
-use crate::workflow_state::{self, Open, WorkflowError, WorkflowState, WorkflowStatus};
+use crate::workflow_state::{Open, WorkflowState, WorkflowStatus};
 use async_trait::async_trait;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -11,7 +10,8 @@ use std::time::SystemTime;
 #[async_trait]
 pub trait WorkflowDbTrait: Send + Sync {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
-    async fn set_signal_processed(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
+    async fn update_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
+    async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType>;
     async fn get_signals(
         &self,
         workflow_name: &str,
@@ -24,9 +24,9 @@ pub trait WorkflowDbTrait: Send + Sync {
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState>;
     async fn get_all(&self) -> Vec<WorkflowState>;
     async fn get_workflow_state(
-       &self,
+        &self,
         run_id: &str,
-    ) -> Result<Option<WorkflowState>, &'static str>;
+    ) -> Result<Option<WorkflowState>, WorkflowErrorType>;
 }
 
 // pub fn unique_workflow_id(workflow_name: &str, instance_id: &str) -> String {
@@ -55,21 +55,18 @@ impl WorkflowDbTrait for InMemoryDB {
         db.values().cloned().collect()
     }
 
-    async fn insert(&self, state: WorkflowState) -> String{
+    async fn insert(&self, state: WorkflowState) -> String {
         let mut db = self.workflows.lock().unwrap();
         db.insert(state.run_id.clone(), state.clone());
         state.run_id.clone()
     }
 
-
     async fn get_workflow_state(
         &self,
         run_id: &str,
-    ) -> Result<Option<WorkflowState>, &'static str> {
+    ) -> Result<Option<WorkflowState>, WorkflowErrorType> {
         let workflows = self.workflows.lock().unwrap();
-        Ok(workflows
-            .get(run_id)
-            .cloned())
+        Ok(workflows.get(run_id).cloned())
     }
 
     async fn update(&self, state: WorkflowState) {
@@ -94,12 +91,16 @@ impl WorkflowDbTrait for InMemoryDB {
         db.insert(signal.id.clone(), signal);
         Ok(())
     }
-    async fn set_signal_processed(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
-        let mut signal_clone = signal.clone();
-        signal_clone.processed = true;
+    async fn update_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
         let mut db = self.signals.lock().unwrap();
-        db.insert(signal.id.clone(), signal_clone);
+        db.insert(signal.id.clone(), signal.clone());
         Ok(())
+    }
+
+    async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType>{
+        let db = self.signals.lock().unwrap();
+        let res = db.values().cloned().collect();
+        Ok(res)
     }
 
     async fn get_signals(
@@ -117,7 +118,7 @@ impl WorkflowDbTrait for InMemoryDB {
                     && s.instance_id == instance_id
                     && s.signal_name == signal_name
                     && s.direction == direction
-                    && !s.processed 
+                    && !s.processed
             })
             .cloned()
             .collect();

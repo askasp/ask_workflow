@@ -3,6 +3,7 @@ use futures::stream::StreamExt;
 use futures::stream::TryStreamExt;
 use mongodb::bson::de::from_document;
 use mongodb::bson::ser::to_document;
+use mongodb::Cursor;
 use mongodb::{
     bson::{self, doc, Bson, DateTime as BsonDateTime, Document},
     Collection, Database,
@@ -14,9 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::WorkflowErrorType;
 use crate::workflow_signal::{Signal, SignalDirection};
-use crate::{
-    workflow_state::{Open, WorkflowState, WorkflowStatus},
-};
+use crate::workflow_state::{Open, WorkflowState, WorkflowStatus};
 
 pub struct MongoDB {
     // db: Arc<Database>,
@@ -134,15 +133,16 @@ impl WorkflowDbTrait for MongoDB {
     async fn get_workflow_state(
         &self,
         run_id: &str,
-    ) -> Result<Option<WorkflowState>, &'static str> {
+    ) -> Result<Option<WorkflowState>, WorkflowErrorType> {
         let query = doc! {
             "_id": run_id,
         };
-        let result = self
-            .workflows
-            .find_one(query)
-            .await
-            .map_err(|_| "Database query failed")?;
+        let result = self.workflows.find_one(query).await.map_err(|_| {
+            WorkflowErrorType::TransientError {
+                message: "Query failed".to_string(),
+                content: None,
+            }
+        })?;
 
         // If a document is found, use `deserialize_workflow_state` to convert it
         Ok(result.map(Self::deserialize_workflow_state))
@@ -182,15 +182,11 @@ impl WorkflowDbTrait for MongoDB {
         results
     }
 
-    async fn set_signal_processed(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
-        let mut signal_clone = signal.clone();
-        signal_clone.processed = true;
-
+    async fn update_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType> {
         let query = doc! {
-            "_id": signal.id
+            "_id": signal.id.clone()
         };
-
-        let doc = to_document(&signal_clone).map_err(|e| WorkflowErrorType::TransientError {
+        let doc = to_document(&signal.clone()).map_err(|e| WorkflowErrorType::TransientError {
             message: format!("Serialization failed: {}", e),
             content: None,
         })?;
@@ -221,6 +217,38 @@ impl WorkflowDbTrait for MongoDB {
                 content: None,
             })?;
         Ok(())
+    }
+
+    async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType> {
+        let cursor =
+            self.signals
+                .find(doc! {})
+                .await
+                .map_err(|e| WorkflowErrorType::TransientError {
+                    message: format!("Failed to retrieve signals: {}", e),
+                    content: None,
+                })?; // Return an error if the query fails
+                     //
+        let results: Vec<Signal> = cursor
+            .filter_map(|doc| async {
+                match doc {
+                    Ok(doc) => match from_document::<Signal>(doc) {
+                        Ok(signal) => Some(signal),
+                        Err(e) => {
+                            eprintln!("Failed to deserialize signal: {}", e); // log the error
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error reading document from cursor: {}", e); // log the error
+                        None
+                    }
+                }
+            })
+            .collect()
+            .await;
+
+        Ok(results)
     }
 
     async fn get_signals(

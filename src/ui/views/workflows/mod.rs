@@ -3,51 +3,129 @@ use std::{collections::HashMap, time::SystemTime};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{workflow_signal::SignalDirection, workflow_state::WorkflowState};
+use crate::{
+    workflow_signal::{Signal, SignalDirection},
+    workflow_state::{ActivityResult, WorkflowError, WorkflowState},
+};
 
 pub struct WorkflowContext {
     pub workflows: Vec<WorkflowView>,
-    pub names: Vec<String>
+    pub names: Vec<String>,
 }
 impl WorkflowContext {
-    pub fn add_to_context(&self, context: &mut tera::Context){
+    pub fn add_to_context(&self, context: &mut tera::Context) {
         context.insert("workflows", &self.workflows);
         context.insert("names", &self.names);
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct WorkflowView {
-    pub id: String,
-    pub name: String,
-    pub status: String,
-    pub start_time: Option<String>,
-    pub end_time: Option<String>,
-    pub results: HashMap<String, String>,
+#[derive(Serialize, Deserialize, Debug)]
+pub enum WorkflowAction {
+    SentSignal(SignalView),
+    ReceivedSignal(SignalView),
+    Activity(ActivityView),
+    Error(WorkflowError),
 }
-impl WorkflowView {
-    pub fn new(workflow: &WorkflowState) -> WorkflowView {
-     let new_results = workflow.results.clone()
-        .into_iter()
-        .map(|(activity, output)| {
-            // Convert each output to a pretty JSON string
-            let json_output = serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string());
-            (activity, json_output)
-        })
-        .collect();
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ActivityView {
+    pub name: String,
+    pub data: String,      // Store the result data as a string for easy display
+    pub timestamp: String, // Format timestamp as a string
+}
 
-        WorkflowView {
-            name: workflow.workflow_type.clone(),
-            id: workflow.instance_id.clone(),
-            results: new_results,
-            status: workflow.status.to_string(),
-            end_time: workflow.end_time.map(|time| system_time_to_string(time)),
-            start_time: workflow.start_time.map(|time| system_time_to_string(time)),
+impl ActivityView {
+    pub fn new(activity: &ActivityResult) -> ActivityView {
+        ActivityView {
+            name: activity.name.clone(),
+            data: serde_json::to_string_pretty(&activity.data).unwrap_or_else(|_| "{}".to_string()),
+            timestamp: system_time_to_string(activity.timestamp),
         }
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignalView {
+    pub signal_name: String,
+    pub direction: SignalDirection,
+    pub payload: String,
+    pub sent_at: String,
+    pub processed_at: Option<String>,
+    // Add original timestamps for sorting purposes (not serialized)
+}
+
+impl SignalView {
+    pub fn new(signal: &Signal) -> SignalView {
+        SignalView {
+            signal_name: signal.signal_name.clone(),
+            direction: signal.direction.clone(),
+            payload: serde_json::to_string_pretty(&signal.data)
+                .unwrap_or_else(|_| "{}".to_string()),
+            sent_at: system_time_to_string(signal.sent_at),
+            processed_at: signal.processed_at.map(|time| system_time_to_string(time)),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WorkflowView {
+    pub run_id: String,
+    pub instance_id: String,
+    pub name: String,
+    pub status: String,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub actions: Vec<WorkflowAction>,
+}
+impl WorkflowView {
+    pub fn new(workflow: &WorkflowState, filtered_signals: &[Signal]) -> WorkflowView {
+        let mut actions: Vec<WorkflowAction> = Vec::new();
+
+        // Add Sent and Received signals as actions
+        for signal in filtered_signals {
+            let action = match signal.direction {
+                SignalDirection::FromWorkflow => {
+                    WorkflowAction::SentSignal(SignalView::new(&signal))
+                }
+                SignalDirection::ToWorkflow => {
+                    WorkflowAction::ReceivedSignal(SignalView::new(&signal))
+                }
+            };
+            actions.push(action);
+        }
+
+        // Add activities as actions
+        for (name, activity) in workflow.results.clone() {
+            actions.push(WorkflowAction::Activity(ActivityView::new(&activity)));
+        }
+
+        // Add errors as actions
+        for error in workflow.errors.clone() {
+            actions.push(WorkflowAction::Error(error));
+        }
+
+        // Sort actions by their respective timestamps
+        actions.sort_by_key(|action| match action {
+            WorkflowAction::SentSignal(signal) => signal.sent_at.clone(),
+            WorkflowAction::ReceivedSignal(signal) => signal
+                .processed_at
+                .clone()
+                .unwrap_or(signal.sent_at.clone()),
+            WorkflowAction::Activity(activity) => activity.timestamp.clone(),
+            WorkflowAction::Error(error) => system_time_to_string(error.timestamp),
+        });
+
+        WorkflowView {
+            name: workflow.workflow_type.clone(),
+            run_id: workflow.run_id.clone(),
+            instance_id: workflow.instance_id.clone(),
+            status: workflow.status.to_string(),
+            start_time: workflow.start_time.map(|time| system_time_to_string(time)),
+            end_time: workflow.end_time.map(|time| system_time_to_string(time)),
+            actions,
+        }
+    }
+}
 
 fn system_time_to_string(time: SystemTime) -> String {
     let datetime: DateTime<Utc> = time.into();

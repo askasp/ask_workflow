@@ -1,25 +1,21 @@
 use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
-    db_trait::WorkflowDbTrait,
-    run_activity_m, run_sync_activity_m,
-    workflow::{run_activity, run_sync_activity, Workflow, WorkflowErrorType},
+    run_activity_m,
+    workflow::{parse_input, Workflow, WorkflowErrorType},
     workflow_signal::{SignalDirection, WorkflowSignal},
     workflow_state::WorkflowState,
 };
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Sleep};
+use tokio::time::sleep;
 
 use super::mock_db::{MockDatabase, User};
 
 #[derive(Clone)]
 pub struct CreateUserWorkflow {
-    pub state: WorkflowState,
     pub context: Arc<CreateUserWorkflowContext>,
 }
-
-// #[typetag::serde}
 
 pub struct CreateUserWorkflowContext {
     pub http_client: Arc<reqwest::Client>,
@@ -59,84 +55,46 @@ impl Workflow for CreateUserWorkflow {
     fn static_name() -> &'static str {
         "CreateUserWorkflow"
     }
-    fn state_mut(&mut self) -> &mut WorkflowState {
-        &mut self.state
-    }
-    fn state(&self) -> &WorkflowState {
-        &self.state
-    }
     async fn run(
         &mut self,
         worker: Arc<ask_workflow::worker::Worker>,
+        mut state: &mut WorkflowState,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
-        // Clone necessary data from `self` to avoid multiple borrows
-        let workflow_name = self.name().to_string();
         let ctx_clone = self.context.clone();
 
-        // Borrow `self.state_mut()` once to extract needed fields and avoid repeated mutable borrows
         let (instance_id, input) = {
-            let state = self.state_mut();
             let instance_id = state.instance_id.clone();
-
-            let input = state
-                .input
-                .as_ref()
-                .ok_or_else(|| WorkflowErrorType::PermanentError {
-                    message: "No input provided".to_string(),
-                    content: None,
-                })
-                .and_then(|value| {
-                    serde_json::from_value(value.clone()).map_err(|_| {
-                        WorkflowErrorType::PermanentError {
-                            message: "Failed to deserialize input".to_string(),
-                            content: None,
-                        }
-                    })
-                })?;
-
+            let input = parse_input::<CreateUserInput>(state)?;
             (instance_id, input)
         };
 
         println!("Running CreateUserWorkflow");
-
-        // Activity 1: Create user
         println!("Running create user activity");
-        // let user = worker
-        //     .run_activity("CreateUserActivity", self.state_mut(), || {
-        //         let ctx_clone = ctx_clone.clone();
-
-        //         async move { create_user(ctx_clone, &input).await }
-        //     })
-        //     .await?;
-        let user = run_activity_m!(
-            worker,
-            "CreateUserActivity",
-            self.state_mut(),
-            [ctx_clone],
-            { create_user(ctx_clone, &input).await }
-        )?;
+        let user = run_activity_m!(state, "create_user", "async", [ctx_clone], {
+            create_user(ctx_clone, &input).await
+        })?;
 
         println!("User creation done");
 
-        // Sync Activity: Generate verification code
-        let generated_code = run_sync_activity_m!(
-            worker,
-            "GenerateVerificationCodeActivity",
-            self.state_mut(),
-            [],
-            { Ok(generate_verification_code()) }
-        )?;
-
-        // Send signal with the created user data
+        let generated_code =
+            run_activity_m!(state, "generte_code", "sync", [], { Ok(generate_verification_code()) })?;
         worker
-            .send_signal(&instance_id, NonVerifiedUserOut { user: user.clone() })
+            .send_signal(
+                &instance_id,
+                NonVerifiedUserOut { user: user.clone() },
+                Some(state.run_id.clone()),
+            )
             .await?;
 
         println!("Generated code is {:?}", generated_code);
 
         // Await verification code signal
         let code_signal = worker
-            .await_signal::<VerificationCodeSignal>(&instance_id, Duration::from_secs(60))
+            .await_signal::<VerificationCodeSignal>(
+                &instance_id,
+                Some(state.run_id.clone()),
+                Duration::from_secs(60),
+            )
             .await?;
 
         println!("Received signal {:?}", code_signal);
@@ -149,29 +107,13 @@ impl Workflow for CreateUserWorkflow {
             });
         }
 
-        // Sync Activity: Mark user as verified
-        worker
-            .run_sync_activity("UserVerified", self.state_mut(), || Ok(user.clone()))
-            .await?;
-        println!("User is verified");
-
-        // Activity 2: Send email
         println!("Sending email");
-        worker
-            .run_activity("SendMailActivity", self.state_mut(), || {
-                let ctx_clone = ctx_clone.clone();
-                async move { send_email(ctx_clone).await }
-            })
-            .await?;
+        run_activity_m!(state, "send_email", [ctx_clone], { send_email(ctx_clone).await })?;
 
-        // Activity 3: Send Slack notification
         println!("Sending Slack notification");
-        worker
-            .run_activity("SlackNotifActivity", self.state_mut(), || async move {
-                send_slack_notification(ctx_clone.clone()).await
-            })
-            .await?;
-
+        run_activity_m!(state, "send_to_slack", [ctx_clone], {
+            send_slack_notification(ctx_clone).await
+        })?;
         // Return the final result
         Ok(Some(serde_json::to_value(user)?))
     }
@@ -209,7 +151,7 @@ async fn send_email(ctx: Arc<CreateUserWorkflowContext>) -> Result<(), WorkflowE
         .get("https://httpbin.org/get")
         .send()
         .await
-        .map_err(|e| WorkflowErrorType::TransientError {
+        .map_err(|_e| WorkflowErrorType::TransientError {
             message: "Failed to send email".to_string(),
             content: None,
         })?;
@@ -218,7 +160,7 @@ async fn send_email(ctx: Arc<CreateUserWorkflowContext>) -> Result<(), WorkflowE
 
     response
         .error_for_status()
-        .map_err(|e| WorkflowErrorType::TransientError {
+        .map_err(|_e| WorkflowErrorType::TransientError {
             message: "Non-200 response for email".to_string(),
             content: None,
         })?;
@@ -234,14 +176,14 @@ async fn send_slack_notification(
         .json(&serde_json::json!({ "text": "New user created" }))
         .send()
         .await
-        .map_err(|e| WorkflowErrorType::TransientError {
+        .map_err(|_e| WorkflowErrorType::TransientError {
             message: "Failed to send Slack notification".to_string(),
             content: None,
         })?;
 
     response
         .error_for_status()
-        .map_err(|e| WorkflowErrorType::TransientError {
+        .map_err(|_e| WorkflowErrorType::TransientError {
             message: "Non-200 response for Slack notification".to_string(),
             content: None,
         })?;
@@ -253,7 +195,7 @@ async fn send_slack_notification(
 //
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct VerificationCodeSignal {
-    code: String,
+    pub code: String,
 }
 
 #[async_trait]
@@ -288,9 +230,8 @@ mod tests {
 
         println!("adding workflow");
 
-        worker.add_workflow::<CreateUserWorkflow, _>(move |state| {
+        worker.add_workflow::<CreateUserWorkflow, _>(move || {
             return Box::new(CreateUserWorkflow {
-                state,
                 context: create_user_context.clone(),
             });
         });
@@ -311,7 +252,7 @@ mod tests {
             .unwrap();
 
         let unverified_user: NonVerifiedUserOut = worker
-            .await_signal::<NonVerifiedUserOut>("Aksel", Duration::from_secs(10))
+            .await_signal::<NonVerifiedUserOut>("Aksel", None, Duration::from_secs(10))
             .await
             .unwrap();
 
@@ -323,6 +264,7 @@ mod tests {
                 VerificationCodeSignal {
                     code: "123".to_string(),
                 },
+                None,
             )
             .await
             .unwrap();

@@ -12,6 +12,7 @@ use crate::{
         },
         BaseContext,
     },
+    workflow_signal::Signal,
     workflow_state::WorkflowState,
     AppState,
 };
@@ -102,10 +103,21 @@ async fn render_page(
     });
 
     let workflows = app_state.worker.db.get_all().await;
+    let signals = app_state.worker.db.get_all_signals().await.unwrap();
     let views = workflows
         .iter()
-        .map(|wf| WorkflowView::new(wf))
-        .collect::<Vec<WorkflowView>>();
+        .map(|wf| {
+            let filtered_signals: Vec<Signal> = signals
+                .iter()
+                .filter(|s| s.target_or_source_run_id == Some(wf.run_id.clone()))
+                .cloned()
+                .collect();
+
+            WorkflowView::new(wf, &filtered_signals)
+        })
+        .collect::<Vec<_>>();
+
+    println!("Views: {:?}", views);
 
     let workflow_context = WorkflowContext {
         workflows: views,

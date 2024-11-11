@@ -1,4 +1,4 @@
-use crate::db_trait::{ WorkflowDbTrait};
+use crate::db_trait::WorkflowDbTrait;
 use crate::worker::Worker;
 use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{self, Closed, WorkflowError, WorkflowState, WorkflowStatus};
@@ -18,149 +18,94 @@ pub trait Workflow: Send + Sync {
     where
         Self: Sized;
 
-    // fn unique_id(&self) -> String
-// where {
-        // format!("{}-{}", self.name(), self.state().instance_id)
-    // }
-    // fn create_unique_id(instance_id: &str) -> String
-    // where
-        // Self: Sized,
-    // {
-        // format!("{}-{}", Self::static_name(), instance_id)
-    // }
-
     fn claim_duration(&self) -> Duration {
         Duration::from_secs(30)
     }
 
-    async fn run(&mut self, worker: Arc<Worker>) -> Result<Option<Value>, WorkflowErrorType>;
-
-    fn state_mut(&mut self) -> &mut WorkflowState; // Provides mutable access to the workflow state
-    fn state(&self) -> &WorkflowState; // Provides mutable access to the workflow state
+    async fn run(
+        &mut self,
+        worker: Arc<Worker>,
+        workflow_state: &mut WorkflowState,
+    ) -> Result<Option<Value>, WorkflowErrorType>;
 
     async fn execute(
         &mut self,
         db: Arc<dyn WorkflowDbTrait>,
         worker: Arc<Worker>,
+        workflow_state: &mut WorkflowState,
     ) -> Result<(), WorkflowErrorType> {
-        {
-            let duration = self.claim_duration();
-            let state = self.state_mut();
-            state.scheduled_at = SystemTime::add(SystemTime::now(), duration);
-            if state.start_time.is_none() {
-                state.start_time = Some(SystemTime::now());
-            }
-
-            db.update(state.clone()).await;
+        let duration = self.claim_duration();
+        workflow_state.scheduled_at = SystemTime::add(SystemTime::now(), duration);
+        if workflow_state.start_time.is_none() {
+            workflow_state.start_time = Some(SystemTime::now());
         }
-        let result = self.run(worker).await;
+
+        db.update(workflow_state.clone()).await;
+        let result = self.run(worker, workflow_state).await;
         match result {
-            Ok(output) => {
-                let state = self.state_mut();
-                state.mark_completed();
-                state.output = Some(serde_json::to_value(output).unwrap_or_default());
-                db.update(state.clone()).await;
+            Ok(_) => {
+                workflow_state.mark_completed();
+                db.update(workflow_state.clone()).await;
                 Ok(())
             }
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
                 {
-                    let state = self.state_mut();
-                    state.retry(e.clone());
-                    db.update(state.clone()).await;
+                    workflow_state.retry(e.clone());
+                    db.update(workflow_state.clone()).await;
                 }
                 eprintln!(
                     "Got a transient error on workflow {} with id {}, the rror is {:?}",
                     self.name(),
-                    self.state().instance_id,
+                    workflow_state.instance_id,
                     e
                 );
                 Err(e)
             }
             Err(e2) => {
-                let state = self.state_mut();
-                state.mark_failed(e2.clone());
-                state.output = Some(serde_json::to_value(e2.clone()).unwrap_or_default());
-                db.update(state.clone()).await;
+                // let state = self.state_mut();
+                workflow_state.mark_failed(e2.clone());
+                workflow_state.output = Some(serde_json::to_value(e2.clone()).unwrap_or_default());
+                db.update(workflow_state.clone()).await;
                 Err(e2)
             }
         }
     }
 }
-
 pub async fn run_activity<T, F, Fut>(
-    name: &str,
-    state: &mut WorkflowState,
-    worker: Arc<Worker>,
-    func: F,
+    workflow_state: &mut WorkflowState, // Mutable reference to workflow state
+    name: &str,                         // Name of the activity
+    func: F,                            // Function representing the activity
 ) -> Result<T, WorkflowErrorType>
 where
-    F: FnOnce() -> Fut,
+    F: FnOnce(WorkflowState) -> Fut,
     Fut: Future<Output = Result<T, WorkflowErrorType>>,
     T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 {
-    // Check if the activity is already completed
-    if let Some(result) = state.get_activity_result(name) {
+    // Check if the activity is already completed (caching logic)
+    if let Some(result) = workflow_state.get_activity_result(name) {
         tracing::debug!("Using cached result for activity '{}'", name);
         let cached_result: T = serde_json::from_value(result.clone()).unwrap();
         return Ok(cached_result);
     }
 
-    // Run the function and await its result
-    match func().await {
+    // Run the function with the current state
+    match func(workflow_state.clone()).await {
         Ok(result) => {
             tracing::debug!("Caching result for activity '{}'", name);
-            state.add_activity_result(name, &result);
-            worker.db.update(state.clone()).await;
+            workflow_state.add_activity_result(name, &result);
             Ok(result)
         }
         Err(e) => {
-            state.errors.push(WorkflowError {
+            // Update state with error information
+            workflow_state.errors.push(WorkflowError {
                 error_type: e.clone(),
                 activity_name: Some(name.to_string()),
                 timestamp: SystemTime::now(),
             });
-            worker.db.update(state.clone()).await;
             Err(e)
         }
     }
 }
-pub async fn run_sync_activity<T, F>(
-    name: &str,
-    state: &mut WorkflowState,
-    worker: Arc<Worker>,
-    func: F,
-) -> Result<T, WorkflowErrorType>
-where
-    F: FnOnce() -> Result<T, WorkflowErrorType>,
-    T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-{
-    // Check if the activity is already completed
-    if let Some(result) = state.get_activity_result(name) {
-        println!("Using cached result for activity '{}'", name);
-        let cached_result: T = serde_json::from_value(result.clone()).unwrap();
-        return Ok(cached_result);
-    }
-
-    // Run the function and get its result
-    match func() {
-        Ok(result) => {
-            println!("Caching result for activity '{}'", name);
-            state.add_activity_result(name, &result);
-            worker.db.update(state.clone()).await; // Await the async update call
-            Ok(result)
-        }
-        Err(e) => {
-            state.errors.push(WorkflowError {
-                error_type: e.clone(),
-                activity_name: Some(name.to_string()),
-                timestamp: SystemTime::now(),
-            });
-            worker.db.update(state.clone()).await; // Await the async update call
-            Err(e)
-        }
-    }
-}
-
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

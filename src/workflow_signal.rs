@@ -6,9 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::time::sleep;
 
-use crate::db_trait::WorkflowDbTrait;
-use crate::workflow::{Workflow, WorkflowErrorType};
-use crate::workflow_state::{WorkflowError, WorkflowState};
+use crate::workflow::{Workflow };
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Signal {
@@ -16,13 +14,15 @@ pub struct Signal {
     pub workflow_name: String,
     pub instance_id: String,
     pub signal_name: String,
-    pub timestamp: SystemTime,
+    pub sent_at: SystemTime,
+    pub processed_at: Option<SystemTime>,
     pub data: serde_json::Value,
     pub processed: bool,
+    pub target_or_source_run_id: Option<String>,
     pub direction: SignalDirection,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum SignalDirection {
     FromWorkflow,
     ToWorkflow,
@@ -70,54 +70,4 @@ pub trait WorkflowSignal: Serialize + for<'de> Deserialize<'de> + Send + Sync + 
             instance_id
         )
     }
-    // async fn receive_signal(
-    //     &self,
-    //     db: Arc<dyn WorkflowDbTrait>,
-    //     instance_id: &str,
-    //     poll_interval: Duration,
-    //     timeout: Duration,
-    // ) -> Result<Self, WorkflowErrorType>
-    // where
-    //     Self: Sized,
-    // {
-    //     let signal_id = self.create_signal_id(instance_id);
-    //     let start = tokio::time::Instant::now();
-
-    //     loop {
-    //         if start.elapsed() >= timeout {
-    //             return Err(WorkflowErrorType::PermanentError {
-    //                 message: "Signal timeout reached".to_string(),
-    //                 content: None,
-    //             });
-    //         }
-
-    //         if let Ok(Some(signal)) = db.get_signal(&signal_id).await {
-    //             let data: Self = serde_json::from_value(signal.data).map_err(|e| {
-    //                 WorkflowErrorType::PermanentError {
-    //                     message: "Failed to deserialize signal data".to_string(),
-    //                     content: None,
-    //                 }
-    //             })?;
-    //             return Ok(data);
-    //         }
-
-    //         sleep(poll_interval).await;
-    //     }
-    // }
-    // async fn send_signal(
-    //     &self,
-    //     db: Arc<dyn WorkflowDbTrait>,
-    //     instance_id: &str,
-    //     direction: SignalDirection,
-    // ) -> Result<(), WorkflowErrorType> {
-    //     let signal_data = Signal {
-    //         id: self.create_signal_id(instance_id),
-    //         timestamp: SystemTime::now(),
-    //         data: serde_json::to_value(self).map_err(|e| WorkflowErrorType::PermanentError {
-    //             message: "Failed to serialize signal data".to_string(),
-    //             content: None,
-    //         })?,
-    //     };
-    //     db.insert_signal(signal_data).await
-    // }
 }

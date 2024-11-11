@@ -30,12 +30,19 @@ pub struct WorkflowError {
     pub timestamp: SystemTime,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActivityResult {
+    pub timestamp: SystemTime,
+    pub data: Value,
+    pub name: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct WorkflowState {
     pub workflow_type: String,
     pub instance_id: String,
     pub run_id: String,
-    pub results: HashMap<String, Value>, // Store activity results by activity name
+    pub results: HashMap<String, ActivityResult>, // Store activity results by activity name
     pub scheduled_at: SystemTime,
     pub status: WorkflowStatus,
     pub retries: u32,          // Track the number of retries
@@ -49,7 +56,7 @@ pub struct WorkflowState {
 
 impl WorkflowState {
     // pub fn unique_id(&self) -> String {
-        // format!("{}-{}", self.workflow_type, self.instance_id)
+    // format!("{}-{}", self.workflow_type, self.instance_id)
     // }
 
     pub fn new(
@@ -91,13 +98,20 @@ impl WorkflowState {
 
     // Get the result of a completed activity
     pub fn get_activity_result(&self, activity_name: &str) -> Option<&Value> {
-        self.results.get(activity_name)
+        self.results.get(activity_name).map(|f| &f.data)
     }
 
     // Add an activity result
     pub fn add_activity_result<R: Serialize>(&mut self, activity_name: &str, result: R) {
         let json_result = serde_json::to_value(result).unwrap();
-        self.results.insert(activity_name.to_string(), json_result);
+        self.results.insert(
+            activity_name.to_string(),
+            ActivityResult {
+                name: activity_name.to_string(),
+                timestamp: SystemTime::now(),
+                data: json_result,
+            },
+        );
     }
 
     // Calculate the next retry time using exponential backoff
