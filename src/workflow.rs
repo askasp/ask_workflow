@@ -59,10 +59,23 @@ pub trait Workflow: Send + Sync {
                     workflow_state.instance_id,
                     e
                 );
+                tracing::warn!(
+                    "Got a transient error on workflow {} with id {}, the rror is {:?}",
+                    self.name(),
+                    workflow_state.instance_id,
+                    e
+                );
+
                 Err(e)
             }
             Err(e2) => {
                 // let state = self.state_mut();
+                tracing::error!(
+                    "Got a permanent error on workflow {} with id {}, the rror is {:?}",
+                    self.name(),
+                    workflow_state.instance_id,
+                    e2
+                );
                 workflow_state.mark_failed(e2.clone());
                 workflow_state.output = Some(serde_json::to_value(e2.clone()).unwrap_or_default());
                 db.update(workflow_state.clone()).await;
@@ -106,7 +119,6 @@ where
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum WorkflowErrorType {
