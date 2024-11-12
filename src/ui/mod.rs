@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use tera::Tera;
 use views::components::toast::Toast;
 
@@ -11,8 +13,15 @@ pub fn common_context() -> tera::Context {
 }
 
 pub fn tera_include() -> Tera {
-    let tera = Tera::new("src/ui/views/**/*").unwrap();
-    tera
+    let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Define the path to the templates relative to the library base directory
+    let templates_path = base_path.join("src/ui/views/**/*");
+
+    // Use the dynamically constructed path to initialize Tera
+    Tera::new(templates_path.to_str().unwrap()).expect("Failed to initialize Tera with templates")
+
+    // let tera = Tera::new("src/ui/views/**/*").unwrap();
+    // tera
 }
 
 fn create_context_base(base: BaseContext) -> tera::Context {
