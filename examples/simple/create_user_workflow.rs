@@ -248,7 +248,7 @@ mod tests {
         };
 
         let run_id = worker
-            .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", Some(user_input))
+            .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", user_input)
             .await
             .unwrap();
 

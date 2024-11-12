@@ -65,7 +65,7 @@ impl Worker {
     pub async fn schedule_now<W, T>(
         &self,
         instance_id: &str,
-        input: Option<T>,
+        input: T,
     ) -> Result<String, &'static str>
     where
         W: Workflow + Send + Sync + 'static,
@@ -81,18 +81,24 @@ impl Worker {
         &self,
         instance_id: &str,
         scheduled_at: SystemTime,
-        input: Option<T>,
+        input: T,
     ) -> Result<String, &'static str>
     where
         W: Workflow + Send + Sync + 'static,
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
         if let Some(_workflow_factory) = self.workflows.get(W::static_name()) {
+            let serialized_input = if serde_json::to_value(&input).unwrap_or_default().is_null() {
+                None
+            } else {
+                Some(serde_json::to_value(input).unwrap())
+            };
+
             let workflow_state = WorkflowState::new(
                 W::static_name(),
                 instance_id,
                 scheduled_at,
-                input.map(|i| serde_json::to_value(i).unwrap()),
+                serialized_input,
             );
             let res = self.db.insert(workflow_state.clone()).await;
 
@@ -123,7 +129,7 @@ impl Worker {
     pub async fn execute<W, T>(
         &self,
         instance_id: &str,
-        input: Option<T>,
+        input: T,
         timeout: Duration,
     ) -> Result<WorkflowState, WorkflowErrorType>
     where

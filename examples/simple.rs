@@ -53,7 +53,7 @@ async fn main() {
     println!("adding workflow");
 
     let _ = worker
-        .schedule_now::<BasicWorkflow, ()>(&cuid::cuid1().unwrap(), None)
+        .schedule_now::<BasicWorkflow, ()>(&cuid::cuid1().unwrap(), ())
         .await
         .unwrap();
 
@@ -78,7 +78,7 @@ async fn main() {
 
     println!("scheduling craete user");
     let run_id = worker
-        .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", Some(user_input))
+        .schedule_now::<CreateUserWorkflow, CreateUserInput>("Aksel", user_input)
         .await
         .unwrap();
 
