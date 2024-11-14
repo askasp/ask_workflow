@@ -44,25 +44,3 @@ where
     (worker, worker_handle)
 }
 
-pub async fn initialize_and_start_test_worker_with_multiple_flows<W>(
-    workflows: Vec<W>,
-) -> (Arc<Worker>, JoinHandle<()>)
-where
-    W: Workflow + 'static,
-{
-    let db: Arc<dyn WorkflowDbTrait> = Arc::new(InMemoryDB::new());
-    let mut worker = Worker::new(db.clone());
-
-    for workflow in workflows {
-        worker.add_workflow(workflow);
-    }
-
-    let worker = Arc::new(worker);
-    let worker_clone = worker.clone();
-
-    let worker_handle = tokio::spawn(async move {
-        worker_clone.run(500).await;
-    });
-
-    (worker, worker_handle)
-}
