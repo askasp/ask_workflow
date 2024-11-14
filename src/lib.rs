@@ -1,4 +1,3 @@
-#![feature(associated_type_defaults)]
 use std::sync::Arc;
 mod macros;
 

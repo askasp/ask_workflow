@@ -14,12 +14,10 @@ use std::time::{Duration, SystemTime};
 
 pub struct Worker {
     pub db: Arc<dyn WorkflowDbTrait>,
-    // pub workflows: HashMap<String, Box<dyn Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync>>,
     pub workflows: HashMap<String, Arc<Box<dyn Workflow + Send + Sync>>>,
 }
 
 impl Worker {
-    // Create a new Worker with the provided database
     pub fn new(db: Arc<dyn WorkflowDbTrait>) -> Self {
         Self {
             db,
@@ -30,23 +28,12 @@ impl Worker {
         self.workflows.keys().cloned().collect()
     }
 
-    // pub fn add_workflow<W, F>(&mut self, factory: F)
-    // where
-    //     W: Workflow + 'static,
-    //     F: Fn() -> Box<dyn Workflow + Send + Sync> + Send + Sync + 'static,
-    // {
-    //     let workflow_name = W::static_name().to_string();
-    //     self.workflows.insert(workflow_name, Box::new(factory));
-    // }
-    //
 
     pub fn add_workflow<W: Workflow + 'static>(&mut self, workflow_instance: W) {
         let workflow_name = W::static_name().to_string();
         self.workflows
             .insert(workflow_name, Arc::new(Box::new(workflow_instance)));
     }
-
-    // Schedule a workflow to run immediately
 
     pub fn workflow_names(&self) -> Vec<String> {
         self.workflows.keys().cloned().collect()
