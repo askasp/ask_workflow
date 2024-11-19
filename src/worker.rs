@@ -351,10 +351,8 @@ impl Worker {
 
             Ok(())
         } else {
-            Err(WorkflowErrorType::PermanentError {
-                message: "Workflow not found or already completed".to_string(),
-                content: None,
-            })
+            tracing::warn!("Workflow not found or already completed {}", run_id);
+            Ok(())
         }
     }
 
