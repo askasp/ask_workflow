@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use crate::db_trait::WorkflowDbTrait;
-use crate::workflow::{Workflow, WorkflowErrorType};
+use crate::workflow::{DuplicateStrategy, Workflow, WorkflowErrorType};
 use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{Closed, WorkflowError, WorkflowState, WorkflowStatus};
 use std::collections::HashMap;
@@ -15,6 +16,7 @@ use std::time::{Duration, SystemTime};
 pub struct Worker {
     pub db: Arc<dyn WorkflowDbTrait>,
     pub workflows: HashMap<String, Arc<Box<dyn Workflow + Send + Sync>>>,
+    pub running_tasks: Mutex<HashMap<String, JoinHandle<()>>>, // Store running workflow tasks by run_id
 }
 
 impl Worker {
@@ -22,12 +24,12 @@ impl Worker {
         Self {
             db,
             workflows: HashMap::new(),
+            running_tasks: Mutex::new(HashMap::new()),
         }
     }
     pub fn workflow_keys(&self) -> Vec<String> {
         self.workflows.keys().cloned().collect()
     }
-
 
     pub fn add_workflow<W: Workflow + 'static>(&mut self, workflow_instance: W) {
         let workflow_name = W::static_name().to_string();
@@ -74,6 +76,28 @@ impl Worker {
         W: Workflow + Send + Sync + 'static,
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
+        let workflow_name = W::static_name();
+        let duplicate_strategy = W::duplicate_strategy();
+
+        match duplicate_strategy {
+            DuplicateStrategy::Replace => {
+                // Cancel all running workflows before scheduling a new one
+                self.cancel_running_workflows(workflow_name, instance_id)
+                    .await?;
+            }
+            DuplicateStrategy::Reject => {
+                // Check if any running workflows exist
+                let existing_workflows = self
+                    .db
+                    .get_running_workflows(workflow_name, instance_id)
+                    .await
+                    .map_err(|_| "Failed to query running workflows")?;
+                if !existing_workflows.is_empty() {
+                    return Err("Workflow with the same instance ID is already running");
+                }
+            }
+        }
+
         if let Some(_workflow_factory) = self.workflows.get(W::static_name()) {
             let serialized_input = if serde_json::to_value(&input).unwrap_or_default().is_null() {
                 None
@@ -87,6 +111,7 @@ impl Worker {
                 scheduled_at,
                 serialized_input,
             );
+
             let res = self.db.insert(workflow_state.clone()).await;
 
             Ok(res)
@@ -172,6 +197,10 @@ impl Worker {
                         }
                         WorkflowStatus::Closed(Closed::Failed { error: e }) => {
                             let _ = sender.send(Err(e));
+                            break;
+                        }
+                        WorkflowStatus::Closed(Closed::Cancelled) => {
+                            let _ = sender.send(Ok(workflow_state.clone()));
                             break;
                         }
                         _ => {}
@@ -272,6 +301,55 @@ impl Worker {
             sleep(Duration::from_millis(200)).await;
         }
     }
+    /// Cancel all running workflows with the same instance_id and workflow_name
+    pub async fn cancel_running_workflows(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+    ) -> Result<(), &'static str> {
+        // Retrieve all running workflows with the same instance_id and workflow_name
+        let running_workflows: Vec<WorkflowState> = self
+            .db
+            .get_running_workflows(workflow_name, instance_id)
+            .await
+            .map_err(|_| "Failed to query running workflows")?;
+
+        for workflow in running_workflows {
+            // Reuse the `cancel_workflow` method
+            let res = self.cancel_workflow(&workflow.run_id).await;
+            if res.is_err() {
+                tracing::error!("Failed to cancel workflow: {:?}", res);
+                return Err("Failed to cancel workflow");
+            }
+        }
+
+        self.db.cancel_signals(workflow_name, instance_id).await;
+
+        Ok(())
+    }
+
+    async fn cancel_workflow(&self, run_id: &str) -> Result<(), WorkflowErrorType> {
+        let mut tasks = self.running_tasks.lock().await;
+
+        if let Some(task) = tasks.remove(run_id) {
+            // Abort the task
+            task.abort();
+
+            // Update the workflow state to Terminated
+            if let Ok(Some(mut workflow_state)) = self.db.get_workflow_state(run_id).await {
+                workflow_state.status = WorkflowStatus::Closed(Closed::Cancelled);
+                workflow_state.end_time = Some(SystemTime::now());
+                self.db.update(workflow_state).await;
+            }
+
+            Ok(())
+        } else {
+            Err(WorkflowErrorType::PermanentError {
+                message: "Workflow not found or already completed".to_string(),
+                content: None,
+            })
+        }
+    }
 
     pub async fn run(self: Arc<Self>, interval_millis: u64) {
         let mut interval = tokio::time::interval(Duration::from_millis(interval_millis));
@@ -280,6 +358,10 @@ impl Worker {
             let now = SystemTime::now();
 
             let due_workflows = self.db.query_due(now).await;
+            {
+                let mut tasks = self.running_tasks.lock().await;
+                tasks.retain(|_, handle| !handle.is_finished());
+            }
 
             for workflow_state in due_workflows {
                 let db = Arc::clone(&self.db);
@@ -287,8 +369,8 @@ impl Worker {
 
                 if let Some(workflow) = self.workflows.get(&workflow_state.workflow_type).cloned() {
                     let mut workflow_instance = workflow_state.clone(); // Clone to get an owned mutable instance
-
-                    tokio::spawn(async move {
+                                                                        //
+                    let task = tokio::spawn(async move {
                         let res = workflow
                             .execute(db, me.clone(), &mut workflow_instance)
                             .await;
@@ -296,6 +378,11 @@ impl Worker {
                             eprintln!("Error executing workflow: {:?}", res);
                         }
                     });
+
+                    self.running_tasks
+                        .lock()
+                        .await
+                        .insert(workflow_state.run_id.clone(), task);
                 }
             }
         }

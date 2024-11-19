@@ -31,13 +31,8 @@ async fn main() {
 
     let mut worker = Worker::new(db.clone());
 
-    let context = Arc::new(BasicWorkflowContext {
-        http_client: reqwest::Client::new(),
-    });
 
-    worker.add_workflow::<BasicWorkflow>(BasicWorkflow {
-        context: context.clone(),
-    });
+    worker.add_workflow::<BasicWorkflow>(BasicWorkflow {});
 
     let mock_db = Arc::new(MockDatabase::new());
     let mock_db_clone = mock_db.clone();

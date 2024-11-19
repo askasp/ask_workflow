@@ -129,6 +129,39 @@ impl WorkflowDbTrait for MongoDB {
 
         res.inserted_id.to_string()
     }
+    async fn get_running_workflows(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+    ) -> Result<Vec<WorkflowState>, WorkflowErrorType> {
+        let query = doc! {
+            "workflow_name": workflow_name,
+            "instance_id": instance_id,
+        };
+
+        let cursor =
+            self.workflows
+                .find(query)
+                .await
+                .map_err(|e| WorkflowErrorType::TransientError {
+                    message: format!("Query failed: {:?}", e),
+                    content: None,
+                })?;
+
+        let mut workflows = Vec::new();
+        let results = cursor.try_collect::<Vec<_>>().await.map_err(|e| {
+            WorkflowErrorType::TransientError {
+                message: format!("Error while fetching workflows: {:?}", e),
+                content: None,
+            }
+        })?;
+
+        for doc in results {
+            workflows.push(Self::deserialize_workflow_state(doc));
+        }
+
+        Ok(workflows)
+    }
 
     async fn get_workflow_state(
         &self,
@@ -300,6 +333,37 @@ impl WorkflowDbTrait for MongoDB {
         //     })?;
 
         // Ok(results.and_then(|doc| from_document(doc).ok()))
+    }
+    async fn cancel_signals(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+    ) -> Result<(), WorkflowErrorType> {
+        // MongoDB query to match signals
+        let filter = doc! {
+            "workflow_name": workflow_name,
+            "instance_id": instance_id,
+            "processed": false, // Only update unprocessed signals
+        };
+
+        // MongoDB update to mark signals as processed
+        let update = doc! {
+            "$set": {
+                "processed": true,
+                "processed_at": mongodb::bson::DateTime::now(),
+            }
+        };
+
+        // Execute the update query
+        self.signals
+            .update_many(filter, update)
+            .await
+            .map_err(|e| WorkflowErrorType::TransientError {
+                message: format!("Failed to mark signals as processed: {}", e),
+                content: None,
+            })?;
+
+        Ok(())
     }
 }
 

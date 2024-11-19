@@ -11,6 +11,11 @@ use std::sync::Arc;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
+pub enum DuplicateStrategy {
+    Reject,
+    Replace,
+}
+
 #[async_trait]
 pub trait Workflow: Send + Sync {
     fn name(&self) -> &str;
@@ -19,7 +24,13 @@ pub trait Workflow: Send + Sync {
         Self: Sized;
 
     fn claim_duration(&self) -> Duration {
-        Duration::from_secs(30)
+        Duration::from_secs(60 * 5)
+    }
+    fn duplicate_strategy() -> DuplicateStrategy
+    where
+        Self: Sized,
+    {
+        DuplicateStrategy::Replace
     }
 
     async fn run(

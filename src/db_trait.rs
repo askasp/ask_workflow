@@ -12,6 +12,7 @@ pub trait WorkflowDbTrait: Send + Sync {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
     async fn update_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
     async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType>;
+    async fn cancel_signals(&self, workflow_name: &str, instance_id: &str) -> Result<(), WorkflowErrorType>;
     async fn get_signals(
         &self,
         workflow_name: &str,
@@ -27,6 +28,12 @@ pub trait WorkflowDbTrait: Send + Sync {
         &self,
         run_id: &str,
     ) -> Result<Option<WorkflowState>, WorkflowErrorType>;
+
+    async fn get_running_workflows(
+        &self,
+        workflow_type: &str,
+        instance_id: &str,
+    ) -> Result<Vec<WorkflowState>, WorkflowErrorType>;
 }
 
 // pub fn unique_workflow_id(workflow_name: &str, instance_id: &str) -> String {
@@ -68,6 +75,20 @@ impl WorkflowDbTrait for InMemoryDB {
         let workflows = self.workflows.lock().unwrap();
         Ok(workflows.get(run_id).cloned())
     }
+    async fn get_running_workflows(
+        &self,
+        workflow_type: &str,
+        instance_id: &str,
+    ) -> Result<Vec<WorkflowState>, WorkflowErrorType> {
+        let workflows = self.workflows.lock().unwrap();
+        let workflows_vec = workflows
+            .values()
+            .filter(|w| w.instance_id == instance_id && w.workflow_type == workflow_type)
+            .cloned() // Clone to avoid borrow issues
+            .collect::<Vec<WorkflowState>>();
+
+        Ok(workflows_vec)
+    }
 
     async fn update(&self, state: WorkflowState) {
         let mut db = self.workflows.lock().unwrap();
@@ -97,11 +118,12 @@ impl WorkflowDbTrait for InMemoryDB {
         Ok(())
     }
 
-    async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType>{
+    async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType> {
         let db = self.signals.lock().unwrap();
         let res = db.values().cloned().collect();
         Ok(res)
     }
+
 
     async fn get_signals(
         &self,
@@ -124,5 +146,21 @@ impl WorkflowDbTrait for InMemoryDB {
             .collect();
 
         Ok(Some(res))
+    }
+      async fn cancel_signals(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+    ) -> Result<(), WorkflowErrorType> {
+        let mut db = self.signals.lock().unwrap();
+        // Filter and update signals in place
+        for signal in db.values_mut() {
+            if signal.workflow_name == workflow_name && signal.instance_id == instance_id {
+                signal.processed = true;
+                signal.processed_at = Some(std::time::SystemTime::now());
+            }
+        }
+
+        Ok(())
     }
 }
