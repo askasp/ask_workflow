@@ -135,8 +135,9 @@ impl WorkflowDbTrait for MongoDB {
         instance_id: &str,
     ) -> Result<Vec<WorkflowState>, WorkflowErrorType> {
         let query = doc! {
-            "workflow_name": workflow_name,
+            "workflow_type": workflow_name,
             "instance_id": instance_id,
+            "status.Open": "Running",
         };
 
         let cursor =

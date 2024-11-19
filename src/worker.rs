@@ -308,6 +308,9 @@ impl Worker {
         instance_id: &str,
     ) -> Result<(), &'static str> {
         // Retrieve all running workflows with the same instance_id and workflow_name
+        //
+        tracing::info!("About to cancel workflows");
+
         let running_workflows: Vec<WorkflowState> = self
             .db
             .get_running_workflows(workflow_name, instance_id)
