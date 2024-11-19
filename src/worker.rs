@@ -338,22 +338,20 @@ impl Worker {
         if let Some(task) = tasks.remove(run_id) {
             // Abort the task
             task.abort();
-
-            // Update the workflow state to Terminated
-            if let Ok(Some(mut workflow_state)) = self.db.get_workflow_state(run_id).await {
-                tracing::info!("Updating workflow state to Cancelled {}", run_id);
-
-                workflow_state.status = WorkflowStatus::Closed(Closed::Cancelled);
-                workflow_state.end_time = Some(SystemTime::now());
-                self.db.update(workflow_state).await;
-                tracing::info!("Workflow state is set to cancelled {} ", run_id);
-            }
-
-            Ok(())
         } else {
             tracing::warn!("Workflow not found or already completed {}", run_id);
-            Ok(())
         }
+        // Update the workflow state to Terminated
+        if let Ok(Some(mut workflow_state)) = self.db.get_workflow_state(run_id).await {
+            tracing::info!("Updating workflow state to Cancelled {}", run_id);
+
+            workflow_state.status = WorkflowStatus::Closed(Closed::Cancelled);
+            workflow_state.end_time = Some(SystemTime::now());
+            self.db.update(workflow_state).await;
+            tracing::info!("Workflow state is set to cancelled {} ", run_id);
+        }
+
+        Ok(())
     }
 
     pub async fn run(self: Arc<Self>, interval_millis: u64) {
