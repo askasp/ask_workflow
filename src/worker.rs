@@ -323,12 +323,13 @@ impl Worker {
             }
         }
 
-        self.db.cancel_signals(workflow_name, instance_id).await;
+        let _res = self.db.cancel_signals(workflow_name, instance_id).await;
 
         Ok(())
     }
 
     async fn cancel_workflow(&self, run_id: &str) -> Result<(), WorkflowErrorType> {
+        tracing::info!("Trying to cancel workflow with run id {}", run_id);
         let mut tasks = self.running_tasks.lock().await;
 
         if let Some(task) = tasks.remove(run_id) {
@@ -337,9 +338,12 @@ impl Worker {
 
             // Update the workflow state to Terminated
             if let Ok(Some(mut workflow_state)) = self.db.get_workflow_state(run_id).await {
+                tracing::info!("Updating workflow state to Cancelled {}", run_id);
+
                 workflow_state.status = WorkflowStatus::Closed(Closed::Cancelled);
                 workflow_state.end_time = Some(SystemTime::now());
                 self.db.update(workflow_state).await;
+                tracing::info!("Workflow state is set to cancelled {} ", run_id);
             }
 
             Ok(())
