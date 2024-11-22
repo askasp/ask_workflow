@@ -59,14 +59,17 @@ pub trait Workflow: Send + Sync {
                 db.update(workflow_state.clone()).await;
                 Ok(())
             }
-            Err(WorkflowErrorType::Pending {schedule_time}) => {
-                tracing::info!("Workflow {} with id {} is pending, rescheduleing", self.name(), workflow_state.instance_id);
-                
+            Err(WorkflowErrorType::Pending { schedule_time }) => {
+                tracing::info!(
+                    "Workflow {} with id {} is pending, rescheduleing",
+                    self.name(),
+                    workflow_state.instance_id
+                );
+
                 workflow_state.scheduled_at = schedule_time;
                 db.update(workflow_state.clone()).await;
                 Ok(())
-
-            },
+            }
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
                 {
                     workflow_state.retry(e.clone());
@@ -106,6 +109,7 @@ pub trait Workflow: Send + Sync {
 pub async fn run_activity<T, F, Fut>(
     workflow_state: &mut WorkflowState, // Mutable reference to workflow state
     name: &str,                         // Name of the activity
+    timeout: Option<SystemTime>,        // Timeout for the activity
     func: F,                            // Function representing the activity
 ) -> Result<T, WorkflowErrorType>
 where
@@ -118,6 +122,15 @@ where
         tracing::debug!("Using cached result for activity '{}'", name);
         let cached_result: T = serde_json::from_value(result.clone()).unwrap();
         return Ok(cached_result);
+    }
+
+    if let Some(timeout) = timeout {
+        if SystemTime::now() > timeout {
+            return Err(WorkflowErrorType::PermanentError {
+                message: "Activity timeout".to_string(),
+                content: None,
+            });
+        }
     }
 
     // Run the function with the current state
@@ -140,14 +153,12 @@ where
     }
 }
 
-
 // activity_generate_timeout
 // activirt_ run poller
 // activiy update_due and return.. problem we cant crash as nothing is written to the store
-//   
 //
-// but is it a n error?  its better than 
-
+//
+// but is it a n error?  its better than
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum WorkflowErrorType {
