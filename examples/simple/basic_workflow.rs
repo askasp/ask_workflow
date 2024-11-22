@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
-    run_activity_m,
+    run_activity_m, run_activity_with_timeout_m,
     worker::Worker,
     workflow::{Workflow, WorkflowErrorType},
     workflow_state::WorkflowState,
@@ -22,7 +22,7 @@ impl Workflow for BasicWorkflow {
 
     async fn run(
         &self,
-        _worker: Arc<Worker>,
+        worker: Arc<Worker>,
         mut state: &mut WorkflowState,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
         println!("about to run simple acitvities");
@@ -31,6 +31,13 @@ impl Workflow for BasicWorkflow {
         run_activity_m!(state, "generate_number_async", [], {
             generate_number_async().await
         })?;
+
+        // Timeout-aware activity
+        println!("Starting activity with timeout");
+        run_activity_with_timeout_m!(state, "timeout_activity", Duration::from_secs(5), [], {
+            Ok("Timeout Activity Completed".to_string())
+        })?;
+
         Ok(None)
     }
 }
@@ -131,6 +138,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(state_duplicate.status, WorkflowStatus::Closed(Closed::Completed));
+        assert_eq!(
+            state_duplicate.status,
+            WorkflowStatus::Closed(Closed::Completed)
+        );
     }
 }

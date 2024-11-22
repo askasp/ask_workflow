@@ -1,7 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
-    run_activity_m, run_activity_with_timeout_m,  workflow::{parse_input, Workflow, WorkflowErrorType}, workflow_signal::{SignalDirection, WorkflowSignal}, workflow_state::WorkflowState
+    run_activity_m, run_activity_with_timeout_m,
+    workflow::{parse_input, Workflow, WorkflowErrorType},
+    workflow_signal::{SignalDirection, WorkflowSignal},
+    workflow_state::WorkflowState,
 };
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
@@ -85,7 +88,6 @@ impl Workflow for CreateUserWorkflow {
             .await?;
 
         println!("Generated code is {:?}", generated_code);
-
 
         // Await verification code signal
         let code_signal = run_activity_with_timeout_m!(
