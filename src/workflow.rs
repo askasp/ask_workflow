@@ -59,6 +59,15 @@ pub trait Workflow: Send + Sync {
                 db.update(workflow_state.clone()).await;
                 Ok(())
             }
+            Err(WorkflowErrorType::Pending {schedule_time}) => {
+                println!("Workflow {} with id {} is pending, rescheduleing", self.name(), workflow_state.instance_id);
+                tracing::info!("Workflow {} with id {} is pending, rescheduleing", self.name(), workflow_state.instance_id);
+                
+                workflow_state.scheduled_at = schedule_time;
+                db.update(workflow_state.clone()).await;
+                Ok(())
+
+            },
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
                 {
                     workflow_state.retry(e.clone());
@@ -131,8 +140,21 @@ where
     }
 }
 
+
+// activity_generate_timeout
+// activirt_ run poller
+// activiy update_due and return.. problem we cant crash as nothing is written to the store
+//   
+//
+// but is it a n error?  its better than 
+
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum WorkflowErrorType {
+    Pending {
+        schedule_time: SystemTime,
+    },
+
     TransientError {
         message: String,
         content: Option<Value>,

@@ -301,6 +301,63 @@ impl Worker {
             sleep(Duration::from_millis(200)).await;
         }
     }
+    pub async fn get_signal<S: WorkflowSignal>(
+        &self,
+        instance_id: &str,
+        poll_delay_millis: u64,
+        run_id: Option<String>,
+    ) -> Result<S, WorkflowErrorType> {
+        if let Ok(Some(mut signals)) = self
+            .db
+            .get_signals(
+                S::Workflow::static_name(),
+                instance_id,
+                S::static_signal_name(),
+                S::direction(),
+            )
+            .await
+        {
+            if signals.is_empty() {
+                // Schedule the workflow to run again in the future
+                return Err(WorkflowErrorType::Pending {
+                    schedule_time: SystemTime::now() + Duration::from_millis(poll_delay_millis),
+                });
+            }
+
+            signals.sort_by_key(|signal| signal.sent_at);
+
+            // Apply `run_id` to all signals if it exists
+            if let Some(run_id) = run_id {
+                for signal in signals.iter_mut() {
+                    signal.target_or_source_run_id = Some(run_id.clone());
+                }
+            }
+
+            // Mark all signals as processed
+            for signal in signals.iter_mut() {
+                signal.processed = true;
+                signal.processed_at = Some(SystemTime::now());
+                self.db.update_signal(signal.clone()).await?;
+            }
+
+            // Get the newest signal
+            let newest_signal = signals.last().cloned().expect("signals list is not empty");
+
+            let data: S = serde_json::from_value(newest_signal.data).map_err(|_e| {
+                WorkflowErrorType::PermanentError {
+                    message: "Failed to deserialize signal".to_string(),
+                    content: None,
+                }
+            })?;
+            return Ok(data);
+        } else {
+            // Schedule the workflow to run again in the future
+            return Err(WorkflowErrorType::Pending {
+                schedule_time: SystemTime::now() + Duration::from_millis(poll_delay_millis),
+            });
+        }
+    }
+
     /// Cancel all running workflows with the same instance_id and workflow_name
     pub async fn cancel_running_workflows(
         &self,
@@ -390,82 +447,6 @@ impl Worker {
             }
         }
     }
-    pub async fn run_activity<T, F, Fut>(
-        &self,
-        name: &str,
-        state: &mut WorkflowState,
-        func: F,
-    ) -> Result<T, WorkflowErrorType>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<T, WorkflowErrorType>>,
-        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    {
-        // Check if the activity is already completed
-        if let Some(result) = state.get_activity_result(name) {
-            let cached_result: T = serde_json::from_value(result.clone()).unwrap();
-            return Ok(cached_result);
-        }
-
-        // Run the function and await its result
-        match func().await {
-            Ok(result) => {
-                state.add_activity_result(name, &result);
-                self.db.update(state.clone()).await;
-                Ok(result)
-            }
-            Err(e) => {
-                state.errors.push(WorkflowError {
-                    error_type: e.clone(),
-                    activity_name: Some(name.to_string()),
-                    timestamp: SystemTime::now(),
-                });
-                self.db.update(state.clone()).await;
-                Err(e)
-            }
-        }
-    }
-
-    pub async fn run_sync_activity<T, F>(
-        &self,
-        name: &str,
-        state: &mut WorkflowState,
-        func: F,
-    ) -> Result<T, WorkflowErrorType>
-    where
-        F: FnOnce() -> Result<T, WorkflowErrorType>,
-        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    {
-        // Check if the activity is already completed
-        if let Some(result) = state.get_activity_result(name) {
-            println!("Using cached result for activity '{}'", name);
-            let cached_result: T = serde_json::from_value(result.clone()).unwrap();
-            return Ok(cached_result);
-        }
-
-        // Run the function and get its result
-        match func() {
-            Ok(result) => {
-                println!("Caching result for activity '{}'", name);
-                state.add_activity_result(name, &result);
-                self.db.update(state.clone()).await; // Await the async update call
-                Ok(result)
-            }
-            Err(e) => {
-                state.errors.push(WorkflowError {
-                    error_type: e.clone(),
-                    activity_name: Some(name.to_string()),
-                    timestamp: SystemTime::now(),
-                });
-                self.db.update(state.clone()).await; // Await the async update call
-                Err(e)
-            }
-        }
-    }
 }
 
-// Function to schedule a workflow to run immediately
-
-// Run the worker, periodically checking for due workflows and executing them
-//
-//
+// activity that stores final time and retries when final time is met

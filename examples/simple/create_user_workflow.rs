@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use ask_workflow::{
-    run_activity_m,
+    run_activity_m, run_poll_activity,
     workflow::{parse_input, Workflow, WorkflowErrorType},
     workflow_signal::{SignalDirection, WorkflowSignal},
     workflow_state::WorkflowState,
@@ -61,6 +61,7 @@ impl Workflow for CreateUserWorkflow {
         mut state: &mut WorkflowState,
     ) -> Result<Option<serde_json::Value>, WorkflowErrorType> {
         let ctx_clone = self.context.clone();
+        let run_id = state.run_id.clone();
 
         let (instance_id, input) = {
             let instance_id = state.instance_id.clone();
@@ -69,7 +70,6 @@ impl Workflow for CreateUserWorkflow {
         };
 
         println!("Running CreateUserWorkflow");
-        println!("Running create user activity");
         let user = run_activity_m!(state, "create_user", "async", [ctx_clone], {
             create_user(ctx_clone, &input).await
         })?;
@@ -90,13 +90,17 @@ impl Workflow for CreateUserWorkflow {
         println!("Generated code is {:?}", generated_code);
 
         // Await verification code signal
-        let code_signal = worker
-            .await_signal::<VerificationCodeSignal>(
-                &instance_id,
-                Some(state.run_id.clone()),
-                Duration::from_secs(60),
-            )
-            .await?;
+        let code_signal = run_poll_activity!(
+            state,
+            "GetVerificationCodeSignal",
+            Duration::from_secs(60 * 5),
+            [worker, instance_id, run_id],
+            {
+                worker
+                    .get_signal::<VerificationCodeSignal>(&instance_id, 100, Some(run_id.clone()))
+                    .await
+            }
+        )?;
 
         println!("Received signal {:?}", code_signal);
 
@@ -217,11 +221,24 @@ mod tests {
     // Adjust as necessary
     use ask_workflow::workflow_state::{Closed, WorkflowState, WorkflowStatus};
     use serde_json::json;
+    use std::sync::Once;
     use std::{sync::Arc, time::Duration};
+
+    static INIT: Once = Once::new();
+
+    fn init_tracing() {
+        INIT.call_once(|| {
+            let _ = tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::INFO)
+                .with_test_writer()
+                .try_init();
+        });
+    }
 
     #[tokio::test]
     async fn test_create_user_workflow() {
         println!("Running test_create_user_workflow");
+        init_tracing();
         let db: Arc<dyn ask_workflow::db_trait::WorkflowDbTrait> = Arc::new(InMemoryDB::new());
         let mut worker = Worker::new(db.clone());
         let mock_db = Arc::new(MockDatabase::new());
