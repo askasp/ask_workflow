@@ -60,7 +60,6 @@ pub trait Workflow: Send + Sync {
                 Ok(())
             }
             Err(WorkflowErrorType::Pending {schedule_time}) => {
-                println!("Workflow {} with id {} is pending, rescheduleing", self.name(), workflow_state.instance_id);
                 tracing::info!("Workflow {} with id {} is pending, rescheduleing", self.name(), workflow_state.instance_id);
                 
                 workflow_state.scheduled_at = schedule_time;
@@ -124,6 +123,7 @@ where
     // Run the function with the current state
     match func(workflow_state.clone()).await {
         Ok(result) => {
+            println!("Caching result for activity '{}'", name);
             tracing::debug!("Caching result for activity '{}'", name);
             workflow_state.add_activity_result(name, &result);
             Ok(result)

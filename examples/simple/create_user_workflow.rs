@@ -93,7 +93,7 @@ impl Workflow for CreateUserWorkflow {
         let code_signal = run_poll_activity!(
             state,
             "GetVerificationCodeSignal",
-            Duration::from_secs(60 * 5),
+            Duration::from_secs(30),
             [worker, instance_id, run_id],
             {
                 worker
@@ -275,6 +275,7 @@ mod tests {
             .unwrap();
 
         println!("Unverified user: {:?}", unverified_user);
+        tokio::time::sleep(Duration::from_secs(10)).await;
 
         worker
             .send_signal(
