@@ -198,6 +198,18 @@ impl WorkflowErrorType {
             content: None,
         }
     }
+    pub fn perm_from_error<E: std::fmt::Debug>(message: &str, error: E) -> Self {
+        WorkflowErrorType::PermanentError {
+            message: message.to_string(),
+            content: Some(serde_json::json!({ "error": format!("{:?}", error) })),
+        }
+    }
+    pub fn transient_from_error<E: std::fmt::Debug>(message: &str, error: E) -> Self {
+        WorkflowErrorType::TransientError {
+            message: message.to_string(),
+            content: Some(serde_json::json!({ "error": format!("{:?}", error) })),
+        }
+    }
 }
 
 impl From<serde_json::Error> for WorkflowErrorType {
