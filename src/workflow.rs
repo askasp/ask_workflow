@@ -179,6 +179,27 @@ pub enum WorkflowErrorType {
         content: Option<Value>,
     },
 }
+impl WorkflowErrorType {
+    pub fn perm(message: String) -> Self {
+        WorkflowErrorType::PermanentError {
+            message,
+            content: None,
+        }
+    }
+    pub fn perm_detailed(message: String, content: serde_json::Value) -> Self {
+        WorkflowErrorType::PermanentError {
+            message,
+            content: Some(content),
+        }
+    }
+    pub fn transient(message: String) -> Self {
+        WorkflowErrorType::TransientError {
+            message,
+            content: None,
+        }
+    }
+}
+
 impl From<serde_json::Error> for WorkflowErrorType {
     fn from(err: serde_json::Error) -> Self {
         WorkflowErrorType::PermanentError {
