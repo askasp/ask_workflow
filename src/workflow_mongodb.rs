@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::DateTime;
 use futures::stream::StreamExt;
 use futures::stream::TryStreamExt;
 use mongodb::bson::de::from_document;
@@ -365,6 +366,108 @@ impl WorkflowDbTrait for MongoDB {
             })?;
 
         Ok(())
+    }
+    async fn get_by_cursor(
+        &self,
+        cursor: Option<String>,
+        limit: usize,
+        reverse: bool,
+    ) -> Result<Vec<WorkflowState>, WorkflowErrorType> {
+        let mut query = doc! {};
+
+        // Use `updated_at` as the cursor for pagination
+        if let Some(mut cursor_timestamp) = cursor {
+            println!("Cursor timestamp: {:?}", cursor_timestamp);
+            let sanitized_cursor = cursor_timestamp.replace(' ', "+"); // Replace spaces with "+"
+
+            let datetime = DateTime::parse_from_rfc3339(&sanitized_cursor).map_err(|e| {
+                WorkflowErrorType::PermanentError {
+                    message: format!("cant parse rfc to datetime {:?}", e),
+                    content: None,
+                }
+            })?;
+            let cursor_time = SystemTime::from(datetime);
+            // Convert `SystemTime` to MongoDB-friendly structure
+            let secs = cursor_time
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| WorkflowErrorType::TransientError {
+                    message: format!("Invalid SystemTime: {}", e),
+                    content: None,
+                })?
+                .as_secs();
+
+            // Adjust query based on sort order
+            if reverse {
+                query.insert("updated_at.secs_since_epoch", doc! { "$gt": secs as i64 });
+            } else {
+                query.insert("updated_at.secs_since_epoch", doc! { "$lte": secs as i64 });
+            }
+        }
+        let sort_order = if reverse { 1 } else { -1 };
+
+        let cursor = self
+            .workflows
+            .find(query)
+            .sort(doc! { "updated_at.secs_since_epoch": sort_order })
+            .limit(limit as i64)
+            .await
+            .map_err(|e| WorkflowErrorType::TransientError {
+                message: format!("Failed to query workflows: {}", e),
+                content: None,
+            })?;
+
+        let results: Vec<WorkflowState> = cursor
+            .filter_map(|doc| async {
+                match doc {
+                    Ok(doc) => Some(Self::deserialize_workflow_state(doc)),
+                    Err(e) => {
+                        eprintln!("Error reading document from cursor: {}", e);
+                        None
+                    }
+                }
+            })
+            .collect()
+            .await;
+
+        Ok(results)
+    }
+    async fn get_signals_for_workflows(
+        &self,
+        workflow_ids: Vec<String>,
+    ) -> Result<Vec<Signal>, WorkflowErrorType> {
+        let query = doc! {
+            "instance_id": { "$in": workflow_ids },
+        };
+
+        let cursor =
+            self.signals
+                .find(query)
+                .await
+                .map_err(|e| WorkflowErrorType::TransientError {
+                    message: format!("Failed to query signals: {}", e),
+                    content: None,
+                })?;
+
+        let results: Vec<Signal> = cursor
+            .filter_map(|doc| async {
+                match doc {
+                    Ok(doc) => match from_document::<Signal>(doc) {
+                        Ok(signal) => Some(signal),
+                        Err(e) => {
+                            eprintln!("Failed to deserialize signal: {}", e);
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error reading document from cursor: {}", e);
+                        None
+                    }
+                }
+            })
+            .collect()
+            .await;
+
+        Ok(results)
     }
 }
 

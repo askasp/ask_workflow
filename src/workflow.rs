@@ -67,12 +67,14 @@ pub trait Workflow: Send + Sync {
                 );
 
                 workflow_state.scheduled_at = schedule_time;
+                workflow_state.updated_at = Some(SystemTime::now());
                 db.update(workflow_state.clone()).await;
                 Ok(())
             }
             Err(e) if matches!(e, WorkflowErrorType::TransientError { .. }) => {
                 {
                     workflow_state.retry(e.clone());
+                    workflow_state.updated_at = Some(SystemTime::now());
                     db.update(workflow_state.clone()).await;
                 }
                 eprintln!(
@@ -99,6 +101,8 @@ pub trait Workflow: Send + Sync {
                     e2
                 );
                 workflow_state.mark_failed(e2.clone());
+
+                workflow_state.updated_at = Some(SystemTime::now());
                 workflow_state.output = Some(serde_json::to_value(e2.clone()).unwrap_or_default());
                 db.update(workflow_state.clone()).await;
                 Err(e2)

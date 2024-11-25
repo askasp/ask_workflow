@@ -12,7 +12,17 @@ pub trait WorkflowDbTrait: Send + Sync {
     async fn insert_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
     async fn update_signal(&self, signal: Signal) -> Result<(), WorkflowErrorType>;
     async fn get_all_signals(&self) -> Result<Vec<Signal>, WorkflowErrorType>;
-    async fn cancel_signals(&self, workflow_name: &str, instance_id: &str) -> Result<(), WorkflowErrorType>;
+
+    async fn get_signals_for_workflows(
+        &self,
+        workflow_ids: Vec<String>,
+    ) -> Result<Vec<Signal>, WorkflowErrorType>;
+
+    async fn cancel_signals(
+        &self,
+        workflow_name: &str,
+        instance_id: &str,
+    ) -> Result<(), WorkflowErrorType>;
     async fn get_signals(
         &self,
         workflow_name: &str,
@@ -24,6 +34,12 @@ pub trait WorkflowDbTrait: Send + Sync {
     async fn update(&self, state: WorkflowState);
     async fn query_due(&self, now: SystemTime) -> Vec<WorkflowState>;
     async fn get_all(&self) -> Vec<WorkflowState>;
+    async fn get_by_cursor(
+        &self,
+        cursor: Option<String>,
+        limit: usize,
+        reverse: bool,
+    ) -> Result<Vec<WorkflowState>, WorkflowErrorType>;
     async fn get_workflow_state(
         &self,
         run_id: &str,
@@ -61,11 +77,39 @@ impl WorkflowDbTrait for InMemoryDB {
         let db = self.workflows.lock().unwrap();
         db.values().cloned().collect()
     }
+    async fn get_signals_for_workflows(
+        &self,
+        workflow_ids: Vec<String>,
+    ) -> Result<Vec<Signal>, WorkflowErrorType> {
+        let db = self.signals.lock().unwrap();
+
+        // Filter signals based on workflow IDs, signal name, and direction
+        let signals = db
+            .values()
+            .filter(|signal| workflow_ids.contains(&signal.instance_id))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        Ok(signals)
+    }
 
     async fn insert(&self, state: WorkflowState) -> String {
         let mut db = self.workflows.lock().unwrap();
         db.insert(state.run_id.clone(), state.clone());
         state.run_id.clone()
+    }
+    async fn get_by_cursor(
+        &self,
+        cursor: Option<String>,
+        limit: usize,
+        reverse: bool,
+    ) -> Result<Vec<WorkflowState>, WorkflowErrorType> {
+        let db = self.workflows.lock().unwrap();
+
+        // Collect workflows and sort them by `updated_at`
+        let mut workflows: Vec<WorkflowState> = db.values().cloned().collect();
+
+        Ok(workflows)
     }
 
     async fn get_workflow_state(
@@ -124,7 +168,6 @@ impl WorkflowDbTrait for InMemoryDB {
         Ok(res)
     }
 
-
     async fn get_signals(
         &self,
         workflow_name: &str,
@@ -147,7 +190,7 @@ impl WorkflowDbTrait for InMemoryDB {
 
         Ok(Some(res))
     }
-      async fn cancel_signals(
+    async fn cancel_signals(
         &self,
         workflow_name: &str,
         instance_id: &str,

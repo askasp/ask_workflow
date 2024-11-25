@@ -52,6 +52,8 @@ pub struct WorkflowState {
     pub start_time: Option<SystemTime>,
     pub end_time: Option<SystemTime>,
     pub input: Option<Value>,
+    pub created_at: Option<SystemTime>,
+    pub updated_at: Option<SystemTime>,
 }
 
 impl WorkflowState {
@@ -78,6 +80,8 @@ impl WorkflowState {
             errors: vec![],
             start_time: None,
             end_time: None,
+            created_at: Some(SystemTime::now()),
+            updated_at: Some(SystemTime::now()),
             input,
         }
     }
@@ -86,6 +90,7 @@ impl WorkflowState {
     pub fn mark_completed(&mut self) {
         self.status = WorkflowStatus::Closed(Closed::Completed);
         self.end_time = Some(SystemTime::now());
+        self.updated_at = Some(SystemTime::now());
     }
     pub fn mark_failed(&mut self, error: WorkflowErrorType) {
         self.status = WorkflowStatus::Closed(Closed::Failed { error })

@@ -11,11 +11,17 @@ use crate::{
 pub struct WorkflowContext {
     pub workflows: Vec<WorkflowView>,
     pub names: Vec<String>,
+    pub prev_cursor: Option<String>,
+    pub next_cursor: Option<String>,
+    pub limit: usize, // New field for the limit
 }
 impl WorkflowContext {
     pub fn add_to_context(&self, context: &mut tera::Context) {
         context.insert("workflows", &self.workflows);
         context.insert("names", &self.names);
+        context.insert("prev_cursor", &self.prev_cursor);
+        context.insert("next_cursor", &self.next_cursor);
+        context.insert("limit", &self.limit); // Add the limit to the context
     }
 }
 
@@ -76,6 +82,7 @@ pub struct WorkflowView {
     pub start_time: Option<String>,
     pub end_time: Option<String>,
     pub actions: Vec<WorkflowAction>,
+    pub updated_at: Option<String>,
 }
 impl WorkflowView {
     pub fn new(workflow: &WorkflowState, filtered_signals: &[Signal]) -> WorkflowView {
@@ -123,6 +130,7 @@ impl WorkflowView {
             start_time: workflow.start_time.map(|time| system_time_to_string(time)),
             end_time: workflow.end_time.map(|time| system_time_to_string(time)),
             actions,
+            updated_at: workflow.updated_at.map(|time| system_time_to_string(time)),
         }
     }
 }
