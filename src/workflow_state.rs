@@ -93,7 +93,9 @@ impl WorkflowState {
         self.updated_at = Some(SystemTime::now());
     }
     pub fn mark_failed(&mut self, error: WorkflowErrorType) {
-        self.status = WorkflowStatus::Closed(Closed::Failed { error })
+        self.status = WorkflowStatus::Closed(Closed::Failed { error });
+        self.end_time = Some(SystemTime::now());
+        self.updated_at = Some(SystemTime::now());
     }
 
     // Check if an activity has already completed
