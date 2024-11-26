@@ -80,13 +80,13 @@
               <!-- Error -->
               <div class="mb-2">
                 <p class="font-medium text-red-500">Error:</p>
-                {% if action.Error.PermanentError is defined %}
+                {% if action.Error.error_type.PermanentError is defined %}
                 <p class="text-sm text-gray-500">
-                  {{ action.Error.PermanentError.message }}
+                  {{ action.Error.error_type.PermanentError.message }}
                 </p>
-                {% elif action.Error.TransientError is defined %}
+                {% elif action.Error.error_type.TransientError is defined %}
                 <p class="text-sm text-gray-500">
-                  {{ action.Error.TransientError.message }}
+                  {{ action.Error.error_type.TransientError.message }}
                 </p>
                 {% else %}
                 <p class="text-sm text-gray-500">Unknown error</p>
