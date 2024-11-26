@@ -83,6 +83,7 @@ pub struct WorkflowView {
     pub end_time: Option<String>,
     pub actions: Vec<WorkflowAction>,
     pub updated_at: Option<String>,
+    pub scheduled_at: Option<String>,
 }
 impl WorkflowView {
     pub fn new(workflow: &WorkflowState, filtered_signals: &[Signal]) -> WorkflowView {
@@ -131,6 +132,7 @@ impl WorkflowView {
             end_time: workflow.end_time.map(|time| system_time_to_string(time)),
             actions,
             updated_at: workflow.updated_at.map(|time| system_time_to_string(time)),
+            scheduled_at: Some(system_time_to_string(workflow.scheduled_at)),
         }
     }
 }

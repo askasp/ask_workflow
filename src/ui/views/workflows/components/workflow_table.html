@@ -5,9 +5,7 @@
         <tr>
           <th scope="col" class="px-6 py-3">Name</th>
           <th scope="col" class="px-6 py-3">Status</th>
-          <th scope="col" class="px-6 py-3">Start</th>
-          <th scope="col" class="px-6 py-3">End</th>
-          <th scope="col" class="px-6 py-3">Updated</th>
+          <th scope="col" class="px-6 py-3">Timestamps</th>
           <th scope="col" class="px-6 py-3">Action</th>
         </tr>
       </thead>
@@ -27,9 +25,42 @@
               {{ workflow.run_id }}
           </td>
           <td class="px-6 py-4">{{ workflow.status }}</td>
-          <td class="px-6 py-4">{{ workflow.start_time}} </td>
-          <td class="px-6 py-4">{{ workflow.end_time}} </td>
-          <td class="px-6 py-4">{{ workflow.updated_at}} </td>
+          <td class="px-6 py-4">
+            <div class="flex flex-row gap-2">
+              <div class="text-xs font-semibold">
+                Start
+              </div>
+              <div class="text-xs">
+                {{ workflow.start_time}}
+              </div>
+            </div>
+            <div class="flex flex-row gap-2">
+              <div class="text-xs font-semibold">
+                Scheduled
+              </div>
+              <div class="text-xs">
+                {{ workflow.scheduled_at}}
+              </div>
+            </div>
+            <div class="flex flex-row gap-2">
+              <div class="text-xs font-semibold">
+                Updated
+              </div>
+              <div class="text-xs">
+                {{ workflow.updated_at}} 
+              </div>
+            </div>
+
+            <div class="flex flex-row gap-2">
+              <div class="text-xs font-semibold">
+                End
+              </div>
+              <div class="text-xs">
+                {{ workflow.end_time}}
+              </div>
+            </div>
+
+          </td>
           <td class="px-6 py-4">
             <button type="button" data-accordion-target="#workflow-{{ loop.index }}" aria-expanded="false"
               aria-controls="workflow-{{ loop.index }}" class="text-blue-600 dark:text-blue-500 hover:underline">
