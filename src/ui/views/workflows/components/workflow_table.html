@@ -1,4 +1,4 @@
-<div id="table-container" class="relative overflow-x-auto shadow-none  sm:rounded-lg border w-full">
+<div id="table-container" class="relative overflow-x-auto shadow-none  sm:rounded-lg border w-full not-dark">
   <div class="max-h-[500px] overflow-y-auto"> <!-- Add max height and scroll -->
     <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400 ">
       <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
@@ -80,7 +80,19 @@
               <!-- Error -->
               <div class="mb-2">
                 <p class="font-medium text-red-500">Error:</p>
+                {% if action.Error.PermanentError is defined %}
+                <p class="text-sm text-gray-500">
+                  {{ action.Error.PermanentError.message }}
+                </p>
+                {% elif action.Error.TransientError is defined %}
+                <p class="text-sm text-gray-500">
+                  {{ action.Error.TransientError.message }}
+                </p>
+                {% else %}
+                <p class="text-sm text-gray-500">Unknown error</p>
+                {% endif %}
               </div>
+
               {% endif %}
               {% endfor %}
             </div>
