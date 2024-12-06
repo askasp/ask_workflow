@@ -127,7 +127,11 @@ impl WorkflowDbTrait for InMemoryDB {
         let workflows = self.workflows.lock().unwrap();
         let workflows_vec = workflows
             .values()
-            .filter(|w| w.instance_id == instance_id && w.workflow_type == workflow_type)
+            .filter(|w| {
+                w.instance_id == instance_id
+                    && w.workflow_type == workflow_type
+                    && matches!(w.status, WorkflowStatus::Open(_)) // Match any Closed variant
+            })
             .cloned() // Clone to avoid borrow issues
             .collect::<Vec<WorkflowState>>();
 

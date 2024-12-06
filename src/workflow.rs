@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 
 pub enum DuplicateStrategy {
     Reject,
-    Replace,
+    Enqueue,
 }
 
 #[async_trait]
@@ -23,14 +23,26 @@ pub trait Workflow: Send + Sync {
     where
         Self: Sized;
 
-    fn claim_duration(&self) -> Duration {
-        Duration::from_secs(60 * 5)
-    }
-    fn duplicate_strategy() -> DuplicateStrategy
+    fn static_claim_duration() -> Duration
     where
         Self: Sized,
     {
-        DuplicateStrategy::Replace
+        Duration::from_secs(60 * 5)
+    }
+
+    fn claim_duration(&self) -> Duration {
+        Duration::from_secs(60 * 5)
+    }
+
+    fn duplicate_strategy(&self) -> DuplicateStrategy {
+        DuplicateStrategy::Enqueue
+    }
+
+    fn static_duplicate_strategy() -> DuplicateStrategy
+    where
+        Self: Sized,
+    {
+        DuplicateStrategy::Enqueue
     }
 
     async fn run(
@@ -45,6 +57,66 @@ pub trait Workflow: Send + Sync {
         worker: Arc<Worker>,
         workflow_state: &mut WorkflowState,
     ) -> Result<(), WorkflowErrorType> {
+        let existing_workflows = db
+            .get_running_workflows(&workflow_state.workflow_type, &workflow_state.instance_id)
+            .await?;
+
+        if existing_workflows.len() > 1 {
+            let current_start_time = workflow_state.start_time.unwrap_or_else(SystemTime::now);
+            let current_created_at = workflow_state.created_at.unwrap_or_else(SystemTime::now);
+            let mut is_earliest = true;
+
+            for existing in existing_workflows
+                .iter()
+                .filter(|wf| wf.run_id != workflow_state.run_id)
+            {
+                match (existing.start_time, existing.created_at) {
+                    (Some(existing_start_time), _) => {
+                        // Compare start_time when available
+                        if existing_start_time < current_start_time {
+                            is_earliest = false;
+                            break;
+                        }
+                    }
+                    (None, Some(existing_created_at)) => {
+                        // Fallback to created_at if no start_time
+                        if workflow_state.start_time.is_none()
+                            && existing_created_at < current_created_at
+                        {
+                            is_earliest = false;
+                            break;
+                        }
+                    }
+                    (None, None) => {}
+                }
+            }
+
+            if !is_earliest {
+                match self.duplicate_strategy() {
+                    DuplicateStrategy::Reject => {
+                        workflow_state.mark_failed(WorkflowErrorType::PermanentError {
+                            message: "Duplicate workflow detected".to_string(),
+                            content: None,
+                        });
+                        db.update(workflow_state.clone()).await;
+                        return Ok(());
+                    }
+                    DuplicateStrategy::Enqueue => {
+                        workflow_state.scheduled_at = SystemTime::now() + self.claim_duration();
+                        println!(
+                            "Workflow {} with id {} is a duplicate, rescheduling at {:?}",
+                            self.name(),
+                            workflow_state.instance_id,
+                            workflow_state.scheduled_at
+                        );
+
+                        db.update(workflow_state.clone()).await;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         let duration = self.claim_duration();
         workflow_state.scheduled_at = SystemTime::add(SystemTime::now(), duration);
         if workflow_state.start_time.is_none() {
