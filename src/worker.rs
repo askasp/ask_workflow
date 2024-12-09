@@ -77,27 +77,6 @@ impl Worker {
         W: Workflow + Send + Sync + 'static,
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
-        // let workflow_name = W::static_name();
-        // let duplicate_strategy = W::static_duplicate_strategy();
-
-        // let existing_workflows = self
-        //     .db
-        //     .get_running_workflows(workflow_name, instance_id)
-        //     .await
-        //     .map_err(|_| "Failed to query running workflows")?;
-
-        // if !existing_workflows.is_empty() {
-        //     match duplicate_strategy {
-        //         DuplicateStrategy::Reject => {
-        //             return Err("Workflow with the same instance ID is already running")
-        //         }
-        //         DuplicateStrategy::Enqueue => {
-        //             let new_scheduled_time = SystemTime::now() + W::static_claim_duration();
-        //             scheduled_at = cmp::max(scheduled_at, new_scheduled_time)
-        //         }
-        //     }
-        // }
-
         if let Some(_workflow_factory) = self.workflows.get(W::static_name()) {
             let serialized_input = if serde_json::to_value(&input).unwrap_or_default().is_null() {
                 None
