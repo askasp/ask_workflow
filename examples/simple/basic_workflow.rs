@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use ask_workflow::{
     run_activity_m, run_activity_with_timeout_m,
     worker::Worker,
-    workflow::{Workflow, WorkflowErrorType},
+    workflow::{DuplicateStrategy, Workflow, WorkflowErrorType},
     workflow_state::WorkflowState,
 };
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,16 @@ impl Workflow for BasicWorkflow {
     }
     fn static_name() -> &'static str {
         "BasicWorkflow"
+    }
+
+    fn duplicate_strategy(&self) -> DuplicateStrategy {
+        DuplicateStrategy::Reject
+    }
+    fn static_duplicate_strategy() -> DuplicateStrategy
+    where
+        Self: Sized,
+    {
+        DuplicateStrategy::Reject
     }
 
     async fn run(
@@ -123,24 +133,26 @@ mod tests {
             .await
             .unwrap();
 
-        let state = worker
-            .await_workflow::<BasicWorkflow>(&run_id, tokio::time::Duration::from_secs(10), 500)
-            .await
-            .unwrap();
-
-        assert_eq!(state.status, WorkflowStatus::Closed(Closed::Cancelled));
-
         let state_duplicate = worker
             .await_workflow::<BasicWorkflow>(
                 &run_id_duplicate,
                 tokio::time::Duration::from_secs(10),
                 500,
             )
+            .await;
+
+        assert_eq!(
+            state_duplicate,
+            Err(WorkflowErrorType::PermanentError {
+                message: "Duplicate workflow detected".to_string(),
+                content: None
+            })
+        );
+
+        let state = worker
+            .await_workflow::<BasicWorkflow>(&run_id, tokio::time::Duration::from_secs(10), 500)
             .await
             .unwrap();
-        assert_eq!(
-            state_duplicate.status,
-            WorkflowStatus::Closed(Closed::Completed)
-        );
+        assert_eq!(state.status, WorkflowStatus::Closed(Closed::Completed));
     }
 }

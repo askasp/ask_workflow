@@ -8,6 +8,7 @@ use crate::db_trait::WorkflowDbTrait;
 use crate::workflow::{DuplicateStrategy, Workflow, WorkflowErrorType};
 use crate::workflow_signal::{Signal, WorkflowSignal};
 use crate::workflow_state::{Closed, WorkflowError, WorkflowState, WorkflowStatus};
+use std::cmp;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
@@ -76,27 +77,26 @@ impl Worker {
         W: Workflow + Send + Sync + 'static,
         T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     {
-        let workflow_name = W::static_name();
-        let duplicate_strategy = W::duplicate_strategy();
+        // let workflow_name = W::static_name();
+        // let duplicate_strategy = W::static_duplicate_strategy();
 
-        match duplicate_strategy {
-            DuplicateStrategy::Replace => {
-                // Cancel all running workflows before scheduling a new one
-                self.cancel_running_workflows(workflow_name, instance_id)
-                    .await?;
-            }
-            DuplicateStrategy::Reject => {
-                // Check if any running workflows exist
-                let existing_workflows = self
-                    .db
-                    .get_running_workflows(workflow_name, instance_id)
-                    .await
-                    .map_err(|_| "Failed to query running workflows")?;
-                if !existing_workflows.is_empty() {
-                    return Err("Workflow with the same instance ID is already running");
-                }
-            }
-        }
+        // let existing_workflows = self
+        //     .db
+        //     .get_running_workflows(workflow_name, instance_id)
+        //     .await
+        //     .map_err(|_| "Failed to query running workflows")?;
+
+        // if !existing_workflows.is_empty() {
+        //     match duplicate_strategy {
+        //         DuplicateStrategy::Reject => {
+        //             return Err("Workflow with the same instance ID is already running")
+        //         }
+        //         DuplicateStrategy::Enqueue => {
+        //             let new_scheduled_time = SystemTime::now() + W::static_claim_duration();
+        //             scheduled_at = cmp::max(scheduled_at, new_scheduled_time)
+        //         }
+        //     }
+        // }
 
         if let Some(_workflow_factory) = self.workflows.get(W::static_name()) {
             let serialized_input = if serde_json::to_value(&input).unwrap_or_default().is_null() {

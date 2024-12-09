@@ -16,6 +16,7 @@ mod simple {
     pub mod create_user_workflow;
     pub mod mock_db;
     pub mod poll_fail_workflow;
+    pub mod enqueued_workflow;
 }
 
 use simple::basic_workflow::{BasicWorkflow, BasicWorkflowContext};
