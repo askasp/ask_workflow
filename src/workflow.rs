@@ -73,6 +73,10 @@ pub trait Workflow: Send + Sync {
                 match (existing.start_time, existing.created_at) {
                     (Some(existing_start_time), _) => {
                         // Compare start_time when available
+                        if workflow_state.start_time.is_none() {
+                            is_earliest = false;
+                            break;
+                        }
                         if existing_start_time < current_start_time {
                             is_earliest = false;
                             break;
