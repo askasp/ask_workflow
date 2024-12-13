@@ -14,9 +14,9 @@ use std::time::Duration;
 mod simple {
     pub mod basic_workflow;
     pub mod create_user_workflow;
+    pub mod enqueued_workflow;
     pub mod mock_db;
     pub mod poll_fail_workflow;
-    pub mod enqueued_workflow;
 }
 
 use simple::basic_workflow::{BasicWorkflow, BasicWorkflowContext};
@@ -32,7 +32,6 @@ async fn main() {
         Arc::new(MongoDB::new(database.clone()));
 
     let mut worker = Worker::new(db.clone());
-
 
     worker.add_workflow::<BasicWorkflow>(BasicWorkflow {});
 
@@ -80,7 +79,7 @@ async fn main() {
         .unwrap();
 
     let await_signal =
-        worker.await_signal::<NonVerifiedUserOut>("Aksel", None, Duration::from_secs(10));
+        worker.await_signal::<NonVerifiedUserOut>("Aksel", None, Duration::from_secs(10), false);
     let unverified_user: NonVerifiedUserOut = await_signal.await.unwrap();
     println!("Unverified user: {:?}", unverified_user);
 

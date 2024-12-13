@@ -29,6 +29,7 @@ pub trait WorkflowDbTrait: Send + Sync {
         instance_id: &str,
         signal_name: &str,
         direction: SignalDirection,
+        accept_processed: bool,
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType>;
     async fn insert(&self, state: WorkflowState) -> String;
     async fn update(&self, state: WorkflowState);
@@ -178,6 +179,7 @@ impl WorkflowDbTrait for InMemoryDB {
         instance_id: &str,
         signal_name: &str,
         direction: SignalDirection,
+        accept_processed: bool,
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
         let db = self.signals.lock().unwrap();
         let res = db
@@ -187,7 +189,7 @@ impl WorkflowDbTrait for InMemoryDB {
                     && s.instance_id == instance_id
                     && s.signal_name == signal_name
                     && s.direction == direction
-                    && !s.processed
+                    && (accept_processed || !s.processed)
             })
             .cloned()
             .collect();

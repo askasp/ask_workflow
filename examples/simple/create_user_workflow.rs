@@ -270,7 +270,7 @@ mod tests {
             .unwrap();
 
         let unverified_user: NonVerifiedUserOut = worker
-            .await_signal::<NonVerifiedUserOut>("Aksel", None, Duration::from_secs(10))
+            .await_signal::<NonVerifiedUserOut>("Aksel", None, Duration::from_secs(10), false)
             .await
             .unwrap();
 

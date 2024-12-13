@@ -292,8 +292,12 @@ impl WorkflowDbTrait for MongoDB {
         instance_id: &str,
         signal_name: &str,
         direction: SignalDirection,
+        accept_processed: bool,
     ) -> Result<Option<Vec<Signal>>, WorkflowErrorType> {
-        let query = doc! { "processed": false, "workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
+        let mut query = doc! {"workflow_name": workflow_name, "instance_id": instance_id, "signal_name": signal_name, "direction": direction.to_string() };
+        if !accept_processed {
+            query.insert("processed", false);
+        }
         tracing::debug!("Query: {:?}", query);
         let cursor =
             self.signals

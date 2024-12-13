@@ -224,6 +224,7 @@ impl Worker {
         instance_id: &str,
         run_id: Option<String>,
         timeout: Duration,
+        accept_processed: bool,
     ) -> Result<S, WorkflowErrorType> {
         let start = tokio::time::Instant::now();
 
@@ -242,6 +243,7 @@ impl Worker {
                     instance_id,
                     S::static_signal_name(),
                     S::direction(),
+                    accept_processed,
                 )
                 .await
             {
@@ -293,6 +295,7 @@ impl Worker {
                 instance_id,
                 S::static_signal_name(),
                 S::direction(),
+                false,
             )
             .await
         {
